@@ -1,0 +1,13 @@
+/target
+
+**/.claude/settings.local.json
+
+# Data directory
+data/
+
+# Fuzzing artifacts and build outputs
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/
+
+.env

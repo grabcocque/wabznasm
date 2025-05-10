@@ -1,0 +1,12 @@
+---
+source: tests/ir_snapshots.rs
+assertion_line: 9
+expression: ir
+---
+; ModuleID = 'calc_jit'
+source_filename = "calc_jit"
+
+define i64 @main() {
+entry:
+  ret i64 1
+}

@@ -1,0 +1,16 @@
+# Clippy configuration for wabznasm
+# To fully enforce all Clippy lints as hard errors, run:
+#   cargo clippy -- -D warnings
+# This ensures all warnings and lints are treated as errors during CI or local development.
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Type complexity threshold
+type-complexity-threshold = 60
+
+# Too many arguments threshold
+too-many-arguments-threshold = 7
+
+# Avoid breaking API
+avoid-breaking-exported-api = false

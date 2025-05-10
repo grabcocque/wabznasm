@@ -1,0 +1,26 @@
+[workspace]
+members = [".", "storage"]
+
+[package]
+name = "wabznasm"
+version = "0.1.0"
+edition = "2024"
+description = "A Q-like expression evaluator and REPL with Tree-sitter parsing and LLVM JIT codegen"
+license = "EPL-2.0"
+
+[dependencies]
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "2"
+tree-sitter = "0.25.4"
+# LLVM codegen: enable appropriate LLVM version feature (e.g., llvm14-0)
+inkwell = { version = "0.6", features = ["llvm18-1"], default-features = false }
+color-eyre = "0.6"
+rustyline = "15.0.0"
+storage = { path = "storage" }
+# 'cc' is only used in build.rs
+
+[dev-dependencies]
+insta = "1"
+
+[build-dependencies]
+cc = "1"
