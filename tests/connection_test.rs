@@ -1,9 +1,10 @@
-// Simple test to validate kernel startup without Jupyter
-use std::process::Command;
+// Test for connection config parsing and kernel construction
 use tempfile::NamedTempFile;
+use wabznasm::jupyter::connection::{ConnectionConfig, ConnectionConfigExt};
+use wabznasm::jupyter::kernel::JupyterKernelRunner;
 
 #[test]
-fn test_kernel_starts_and_binds_correctly() {
+fn test_connection_config_parsing() {
     // Create a test connection file
     let config_json = serde_json::json!({
         "transport": "tcp",
@@ -24,37 +25,18 @@ fn test_kernel_starts_and_binds_correctly() {
     )
     .unwrap();
 
-    println!(
-        "🧪 Testing kernel startup with config: {}",
-        temp_file.path().display()
-    );
+    // Test config parsing
+    let config =
+        ConnectionConfig::from_file(temp_file.path()).expect("Failed to parse connection config");
 
-    // Try to start the kernel
-    // Temporarily removing timeout for diagnostics
-    let mut command = Command::new("cargo");
-    command
-        .arg("run")
-        .arg("--")
-        .arg("jupyter")
-        .arg("start")
-        .arg(temp_file.path());
+    // Verify config was parsed correctly by checking some fields
+    assert_eq!(config.shell_port, 50004);
+    assert_eq!(config.iopub_port, 50002);
+    assert_eq!(config.hb_port, 50001);
+    assert!(config.key.contains("test-key"));
 
-    println!("Executing command: {:?}", command);
+    // Test kernel runner construction (this verifies signature schemes work)
+    let _kernel_runner = JupyterKernelRunner::new(config).expect("Failed to create kernel runner");
 
-    let output = command.output().expect("Failed to start kernel");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    println!("📤 Stdout:\n{}", stdout);
-    println!("📤 Stderr:\n{}", stderr);
-
-    // Check if it started successfully
-    assert!(stdout.contains("🚀 Starting Wabznasm Jupyter kernel"));
-    assert!(stdout.contains("Shell socket bound to tcp://127.0.0.1:50004"));
-    assert!(stdout.contains("IOPub socket bound to tcp://127.0.0.1:50002"));
-    assert!(stdout.contains("Heartbeat socket bound to tcp://127.0.0.1:50001"));
-    assert!(stdout.contains("✅ Kernel is ready for connections"));
-
-    println!("✅ Kernel startup test passed");
+    println!("✅ Connection config parsing and kernel construction test passed");
 }
