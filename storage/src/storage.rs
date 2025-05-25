@@ -173,12 +173,12 @@ impl SplayedTable {
         Ok(())
     }
 
-    /// Write a value to a column file using MessagePack
+    /// Write a value to a column file using bincode
     fn write_value_to_column_static(
         column_data: &mut ColumnData,
         value: &ScalarValue,
     ) -> StorageResult<()> {
-        let encoded = rmp_serde::to_vec(value)?;
+        let encoded = bincode::serialize(value)?;
 
         // Write length prefix (4 bytes) followed by data
         let len_bytes = (encoded.len() as u32).to_le_bytes();
@@ -227,7 +227,7 @@ impl SplayedTable {
         let mut data = vec![0u8; len];
         file.read_exact(&mut data)?;
 
-        let value: ScalarValue = rmp_serde::from_slice(&data)?;
+        let value: ScalarValue = bincode::deserialize(&data)?;
         Ok(value)
     }
 
