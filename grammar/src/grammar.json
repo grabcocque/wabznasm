@@ -608,12 +608,20 @@
     "number": {
       "type": "PATTERN",
       "value": "\\d+"
+    },
+    "comment": {
+      "type": "PATTERN",
+      "value": "\\\\[^\\r\\n]*"
     }
   },
   "extras": [
     {
       "type": "PATTERN",
       "value": "[\\s\\t\\n\\r]+"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "comment"
     }
   ],
   "conflicts": [],

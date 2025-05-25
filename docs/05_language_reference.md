@@ -53,17 +53,25 @@ f1          // Numbers allowed after first character
 
 ### Comments
 
-Comments are not currently implemented in the grammar but planned:
+End-of-line comments are supported using Q/KDB+ style backslash syntax:
 
 ```wabz
-// Single-line comment (planned)
-/ Single-line Q-style comment (planned)
+x: 42 \ This is an end-of-line comment
+add: {[a;b] a + b} \ Function definition with comment
+result: add[10; 20] \ Should return 30
 
-\
-  Multi-line comment
-  using Q convention (planned)
-/
+\ Comments can also start at the beginning of a line
+y: result * 2 \ Multiply by 2
 ```
+
+**Important**: The `/` character is reserved for division operations only. To avoid ambiguity between division (`1/2`) and comments, only backslash (`\`) comments are supported.
+
+**Rules**:
+- Comments start with `\` and continue to end of line
+- Can appear at end of any line after code
+- Can appear on their own line
+- Everything after `\` is ignored by the parser
+- Comments do not nest
 
 ## Expressions
 

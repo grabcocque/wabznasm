@@ -91,8 +91,34 @@ impl Evaluator {
         env: &mut Environment,
     ) -> Result<Value, EvalError> {
         match node.kind() {
+            // Handle source_file with multiple children
+            "source_file" => {
+                let mut last_result = None;
+                let mut cursor = node.walk();
+
+                for child in node.named_children(&mut cursor) {
+                    match child.kind() {
+                        "comment" => continue, // Skip comments
+                        "statement" => {
+                            last_result = Some(self.eval_with_env(child, src, env)?);
+                        }
+                        _ => {
+                            // Handle other non-comment nodes as statements
+                            last_result = Some(self.eval_with_env(child, src, env)?);
+                        }
+                    }
+                }
+
+                last_result.ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Other("No statements found in source file".into()),
+                        node,
+                    )
+                })
+            }
+
             // Delegate to child for wrapper nodes
-            "source_file" | "expression" | "statement" => {
+            "expression" | "statement" => {
                 let child = self.named_child(node)?;
                 self.eval_with_env(child, src, env)
             }
