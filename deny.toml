@@ -1,10 +1,10 @@
 [advisories]
 # Acknowledge known issues that we're temporarily accepting
 ignore = [
-    "RUSTSEC-2024-0436",  # paste - unmaintained (via rmp-serde)
     "RUSTSEC-2023-0086",  # lexical-core - soundness issues (via arrow2)
 ]
 
-# These vulnerabilities are in storage-related dependencies that are not used
-# in the core language evaluation or kernel communication paths. The storage
-# layer is optional and these issues don't affect the main functionality.
+# This vulnerability is in a storage-related dependency (arrow2 -> lexical-core)
+# that is not used in the core language evaluation or kernel communication paths.
+# The storage layer is optional and this soundness issue doesn't affect main functionality.
+# We're waiting for arrow2 to update their dependencies to resolve this.
