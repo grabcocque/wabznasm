@@ -29,17 +29,19 @@ fn test_kernel_starts_and_binds_correctly() {
         temp_file.path().display()
     );
 
-    // Try to start the kernel for 2 seconds
-    let output = Command::new("timeout")
-        .arg("2s")
-        .arg("cargo")
+    // Try to start the kernel
+    // Temporarily removing timeout for diagnostics
+    let mut command = Command::new("cargo");
+    command
         .arg("run")
         .arg("--")
         .arg("jupyter")
         .arg("start")
-        .arg(temp_file.path())
-        .output()
-        .expect("Failed to start kernel");
+        .arg(temp_file.path());
+
+    println!("Executing command: {:?}", command);
+
+    let output = command.output().expect("Failed to start kernel");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

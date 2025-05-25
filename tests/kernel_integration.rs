@@ -297,34 +297,42 @@ fn test_multi_statement_cells() {
 fn test_q_style_comments_and_whitespace() {
     let mut session = JupyterSession::new();
 
-    // Test 1: Q-style full line comment starting with /
-    // Behavior: Recognized as a comment, results in Ok(None).
-    let full_line_comment_result = session.execute("/ this is a full line Q comment");
+    // Test 1: Q-style end-of-line comment with statement
+    // Behavior: Statement executes, comment is ignored.
+    let stmt_with_comment_result = session.execute("x: 42 \\ this is an end-of-line comment");
     assert!(
-        full_line_comment_result.is_ok() && full_line_comment_result.as_ref().unwrap().is_none(),
-        "Test 1: Full line Q-style comment did not result in Ok(None). Result: {:?}",
-        full_line_comment_result
+        stmt_with_comment_result.is_ok(),
+        "Test 1: Statement with comment failed. Result: {:?}",
+        stmt_with_comment_result
+    );
+    assert_eq!(
+        stmt_with_comment_result
+            .unwrap()
+            .unwrap()
+            .as_integer()
+            .unwrap(),
+        42,
+        "Test 1: Statement with comment should return 42"
     );
     // No specific error message to check if it's Ok(None)
 
     // Test 2: Expression with Q-style trailing comment
-    // Behavior: Evaluates expression before /, treats rest of line as comment.
-    let expr_trailing_comment_result =
-        session.execute("2 + 3 / this is a comment, not division by this");
+    // Behavior: Evaluates expression before \, treats rest of line as comment.
+    let expr_trailing_comment_result = session.execute("2 + 3 \\ this is a comment");
     assert!(
         expr_trailing_comment_result.is_ok(),
-        "Test 2: Execution of '2 + 3 / comment' failed. Result: {:?}",
+        "Test 2: Execution of '2 + 3 \\ comment' failed. Result: {:?}",
         expr_trailing_comment_result
     );
     let value_option_expr = expr_trailing_comment_result.unwrap();
     assert!(
         value_option_expr.is_some(),
-        "Test 2: '2 + 3 / comment' returned Ok(None)."
+        "Test 2: '2 + 3 \\ comment' returned Ok(None)."
     );
     assert_eq!(
         value_option_expr.unwrap().as_integer().unwrap(),
         5,
-        "Test 2: '2 + 3 / comment' did not evaluate to 5."
+        r"Test 2: '2 + 3 \ comment' did not evaluate to 5."
     );
     // Check that 'this' was indeed part of a comment and not evaluated or defined.
     let this_val_check = session.execute("this");
@@ -337,8 +345,8 @@ fn test_q_style_comments_and_whitespace() {
     );
 
     // Test 3: Assignment with Q-style trailing comment
-    // Behavior: Performs assignment, treats rest of line after / as comment.
-    let assignment_result = session.execute("x_q_comment: 100 / assignment comment");
+    // Behavior: Performs assignment, treats rest of line after \ as comment.
+    let assignment_result = session.execute("x_q_comment: 100 \\ assignment comment");
     assert!(
         assignment_result.is_ok(),
         "Test 3: Assignment with trailing Q comment failed. Result: {:?}",
@@ -366,29 +374,28 @@ fn test_q_style_comments_and_whitespace() {
         "Test 3: x_q_comment value mismatch."
     );
 
-    // Test 4: Valid division operator test - or is it a comment?
-    // Based on previous failure, "10 / 2" evaluates to 10, meaning "/ 2" is treated as a comment.
-    // This implies the "slash acts as comment" rule is very aggressive.
-    // TODO: Clarify if / is ever a division operator, or always a comment introducer after an expression part.
-    let division_or_comment_result = session.execute("10 / 2");
+    // Test 4: Division operator test
+    // With our grammar fix, / is now ONLY a division operator, not a comment.
+    // So "10 / 2" should evaluate to 5 (proper division).
+    let division_result = session.execute("10 / 2");
     assert!(
-        division_or_comment_result.is_ok(),
+        division_result.is_ok(),
         "Test 4: Execution of '10 / 2' failed. Result: {:?}",
-        division_or_comment_result
+        division_result
     );
-    let value_option_div = division_or_comment_result.unwrap();
+    let value_option_div = division_result.unwrap();
     assert!(
         value_option_div.is_some(),
         "Test 4: Execution of '10 / 2' returned None."
     );
     assert_eq!(
         value_option_div.unwrap().as_integer().unwrap(),
-        10,
-        "Test 4: '10 / 2' did not result in 10."
+        5,
+        "Test 4: '10 / 2' should result in 5 (proper division)."
     );
 
-    // Test 5: Expression followed by / and then more text (comment)
-    let expr_then_comment_result = session.execute("10 / 2 is a comment, not division by 2");
+    // Test 5: Expression with Q-style backslash comment
+    let expr_then_comment_result = session.execute("10 \\ this is a comment");
     assert!(
         expr_then_comment_result.is_ok(),
         "Test 5: Expression followed by Q-style comment failed. Result: {:?}",
@@ -402,7 +409,7 @@ fn test_q_style_comments_and_whitespace() {
     assert_eq!(
         value_option_expr_comment.unwrap().as_integer().unwrap(),
         10,
-        "Test 5: Expression '10 / comment' did not evaluate to 10."
+        "Test 5: Expression '10 \\ comment' should evaluate to 10 (comment ignored)."
     );
 }
 
