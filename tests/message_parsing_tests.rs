@@ -36,14 +36,15 @@ fn create_test_kernel_info_request_message() -> zeromq::ZmqMessage {
         .unwrap();
 
     // Build ZMQ message
-    let mut frames = Vec::new();
-    frames.push(b"router-id".to_vec());
-    frames.push(b"<IDS|MSG>".to_vec());
-    frames.push(signature.into_bytes());
-    frames.push(header_bytes);
-    frames.push(parent_header_bytes);
-    frames.push(metadata_bytes);
-    frames.push(content_bytes);
+    let frames = vec![
+        b"router-id".to_vec(),
+        b"<IDS|MSG>".to_vec(),
+        signature.into_bytes(),
+        header_bytes,
+        parent_header_bytes,
+        metadata_bytes,
+        content_bytes,
+    ];
 
     let mut zmq_msg = zeromq::ZmqMessage::from(frames[0].clone());
     for frame in frames.into_iter().skip(1) {

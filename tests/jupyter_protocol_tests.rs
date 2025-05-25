@@ -169,7 +169,7 @@ fn test_signature_creation() {
 
     let signer = SignatureSigner::new("hmac-sha256".to_string(), b"test-key").unwrap();
 
-    let test_data = vec![
+    let test_data = [
         b"header".to_vec(),
         b"parent".to_vec(),
         b"metadata".to_vec(),

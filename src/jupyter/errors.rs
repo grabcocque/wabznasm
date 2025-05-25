@@ -2,6 +2,14 @@ use crate::errors::{EvalError, EvalErrorKind};
 use serde_json::{Value as JsonValue, json};
 use std::collections::HashMap;
 
+// General error type for Jupyter operations that might cross threads
+pub type BoxedError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type JupyterResult<T> = Result<T, BoxedError>;
+
+// Error type for operations confined to a single thread (e.g., local file access)
+pub type BoxedLocalError = Box<dyn std::error::Error + 'static>;
+pub type JupyterLocalResult<T> = Result<T, BoxedLocalError>;
+
 /// Converts wabznasm errors to Jupyter error format
 pub struct JupyterErrorFormatter;
 
@@ -9,60 +17,44 @@ impl JupyterErrorFormatter {
     /// Convert an EvalError to Jupyter error format
     pub fn format_error(error: &EvalError, source_code: &str) -> HashMap<String, JsonValue> {
         let mut error_data = HashMap::new();
-
-        // Basic error information
         error_data.insert("ename".to_string(), json!("WabznasmError"));
         error_data.insert("evalue".to_string(), json!(error.to_string()));
-
-        // Create traceback with source location
         let traceback = Self::create_traceback(error, source_code);
         error_data.insert("traceback".to_string(), json!(traceback));
-
         error_data
     }
 
     /// Create a traceback with syntax highlighting and location info
     pub fn create_traceback(error: &EvalError, _source_code: &str) -> Vec<String> {
         let mut traceback = Vec::new();
-
-        // Add the error message
         traceback.push(format!("WabznasmError: {}", error));
-
         // TODO: Add source location from error.span when implemented
-
-        // Add specific error context based on error kind
         match &error.kind {
-            EvalErrorKind::Other(msg) => {
-                traceback.push(format!("Error: {}", msg));
-            }
-            EvalErrorKind::DivisionByZero => {
-                traceback.push("Error: Division by zero".to_string());
-            }
+            EvalErrorKind::Other(msg) => traceback.push(format!("Error: {}", msg)),
+            EvalErrorKind::DivisionByZero => traceback.push("Error: Division by zero".to_string()),
             EvalErrorKind::IntegerOverflow(msg) => {
-                traceback.push(format!("Error: Integer overflow: {}", msg));
+                traceback.push(format!("Error: Integer overflow: {}", msg))
             }
-            _ => {
-                traceback.push(format!("Error: {}", error.kind));
-            }
+            _ => traceback.push(format!("Error: {}", error.kind)),
         }
-
         traceback
     }
 
     /// Format error for HTML display with syntax highlighting
     pub fn format_error_html(error: &EvalError, source_code: &str) -> String {
         let traceback = Self::create_traceback(error, source_code);
-
         let mut html = String::from(r#"<div class="nb-error">"#);
         html.push_str(r#"<pre class="nb-traceback">"#);
-
         for line in traceback {
+            // Preserve original logic for potential different stylings
             if line.starts_with(">>> ") {
+                // Assuming this was for input lines if they were part of traceback
                 html.push_str(&format!(
                     r#"<span class="nb-error-line">{}</span>"#,
                     html_escape::encode_text(&line)
                 ));
             } else if line.trim().starts_with("^") {
+                // Assuming this was for error pointers
                 html.push_str(&format!(
                     r#"<span class="nb-error-pointer">{}</span>"#,
                     html_escape::encode_text(&line)
@@ -72,7 +64,6 @@ impl JupyterErrorFormatter {
             }
             html.push('\n');
         }
-
         html.push_str("</pre></div>");
         html
     }

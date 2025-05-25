@@ -1,0 +1,30 @@
+# Set default behavior, in case users don't have core.autocrlf set.
+* text=auto eol=lf
+
+# Explicitly declare text files you want to always be LF in the repo.
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# Declare files that will always have CRLF line endings on checkout.
+# *.bat text eol=crlf
+# *.ps1 text eol=crlf
+
+# Declare files that should not be touched & treated as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.lockb binary
+# Add other binary file extensions

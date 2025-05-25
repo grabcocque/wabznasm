@@ -1,4 +1,6 @@
+use crate::jupyter::IdentityFrames;
 use crate::jupyter::connection::{ConnectionConfig, ConnectionConfigExt};
+use crate::jupyter::errors::JupyterResult;
 use crate::jupyter::handler::WabznasmJupyterKernel;
 use crate::jupyter::message_parser::ParsedMessage;
 use crate::jupyter::signature::{
@@ -21,17 +23,13 @@ pub struct JupyterKernelRunner {
 }
 
 impl JupyterKernelRunner {
-    pub fn from_file(
-        connection_file_path: &std::path::Path,
-    ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn from_file(connection_file_path: &std::path::Path) -> JupyterResult<Self> {
         let config_obj = ConnectionConfig::from_file(connection_file_path)
             .map_err(|e| format!("Failed to load config: {}", e))?;
         Self::new(config_obj)
     }
 
-    pub fn new(
-        config: ConnectionConfig,
-    ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn new(config: ConnectionConfig) -> JupyterResult<Self> {
         let key = config.key.as_bytes();
         let verifier = Arc::new(
             JP_SignatureVerifier::new(config.signature_scheme.clone(), key)
@@ -57,7 +55,7 @@ impl JupyterKernelRunner {
         &self,
         parent_header: &Header,
         execution_state: &str,
-    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> JupyterResult<()> {
         let iopub_header = Header {
             msg_id: uuid::Uuid::new_v4().to_string(),
             session: parent_header.session.clone(),
@@ -90,14 +88,15 @@ impl JupyterKernelRunner {
             &content_bytes,
         ])?;
 
-        let mut frames: Vec<Vec<u8>> = Vec::new();
-        frames.push(iopub_header.msg_type.as_bytes().to_vec());
-        frames.push(b"<IDS|MSG>".to_vec());
-        frames.push(signature.into_bytes());
-        frames.push(header_bytes);
-        frames.push(parent_header_bytes);
-        frames.push(metadata_bytes);
-        frames.push(content_bytes);
+        let frames: Vec<Vec<u8>> = vec![
+            iopub_header.msg_type.as_bytes().to_vec(),
+            b"<IDS|MSG>".to_vec(),
+            signature.into_bytes(),
+            header_bytes,
+            parent_header_bytes,
+            metadata_bytes,
+            content_bytes,
+        ];
 
         let mut zmq_msg = ZmqMessage::from(frames[0].clone());
         for frame_content in frames.iter().skip(1) {
@@ -118,9 +117,7 @@ impl JupyterKernelRunner {
         Ok(())
     }
 
-    pub async fn run(
-        &mut self,
-    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn run(&mut self) -> JupyterResult<()> {
         println!("🚀 Starting Wabznasm Jupyter kernel (custom runner)...");
         let mut shell_socket = RouterSocket::new();
         shell_socket.bind(&self.config.shell_url()).await?;
@@ -318,13 +315,13 @@ impl JupyterKernelRunner {
 }
 
 fn construct_zmq_message(
-    identities: &[Vec<u8>],
+    identities: &IdentityFrames,
     header: &Header,
     parent_header: Option<&Header>,
     metadata: &HashMap<String, serde_json::Value>,
     content: &JupyterMessageContent,
     signer: &JP_SignatureSigner,
-) -> std::result::Result<ZmqMessage, Box<dyn std::error::Error + Send + Sync>> {
+) -> JupyterResult<ZmqMessage> {
     let header_bytes = serde_json::to_vec(header)?;
     let parent_header_bytes = match parent_header {
         Some(ph) => serde_json::to_vec(ph)?,
@@ -338,7 +335,7 @@ fn construct_zmq_message(
         &metadata_bytes,
         &content_bytes,
     ])?;
-    let mut frames: Vec<Vec<u8>> = identities.iter().cloned().collect();
+    let mut frames: Vec<Vec<u8>> = identities.to_vec();
     frames.push(b"<IDS|MSG>".to_vec());
     frames.push(signature.into_bytes());
     frames.push(header_bytes);

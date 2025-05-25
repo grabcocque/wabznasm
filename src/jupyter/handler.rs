@@ -1,3 +1,4 @@
+use crate::jupyter::errors::JupyterResult;
 use crate::jupyter::{
     display::JupyterDisplay, errors::JupyterErrorFormatter, session::JupyterSession,
     signature::SignatureSigner as JP_SignatureSigner,
@@ -7,7 +8,7 @@ use jupyter_protocol::{
     ExecuteReply, ExecuteRequest, Header, KernelInfoReply, LanguageInfo, ReplyStatus,
     ShutdownRequest, messaging::CodeMirrorMode, messaging::ExecutionCount,
 };
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -19,13 +20,13 @@ pub struct CustomShutdownReply {
     pub restart: bool,
 }
 
-/// Simplified message structure for IOPub
+/// Simplified message structure for IOPub, defined locally
 #[derive(serde::Serialize)]
 struct SimplifiedMessage {
     header: Header,
     parent_header: Option<Header>,
-    metadata: HashMap<String, Value>,
-    content: Value,
+    metadata: HashMap<String, JsonValue>,
+    content: JsonValue,
 }
 
 /// The main Jupyter kernel implementation for wabznasm
@@ -213,13 +214,16 @@ impl WabznasmJupyterKernel {
     }
 }
 
-/// Construct a ZMQ message for IOPub (simplified, no routing identities needed)
+/// Construct a ZMQ message from a SimplifiedMessage for IOPub publishing
 fn construct_zmq_message_for_iopub(
     message: &SimplifiedMessage,
     signer: &JP_SignatureSigner,
-) -> Result<ZmqMessage, Box<dyn std::error::Error + Send + Sync>> {
+) -> JupyterResult<ZmqMessage> {
     let header_bytes = serde_json::to_vec(&message.header)?;
-    let parent_header_bytes = serde_json::to_vec(&message.parent_header)?;
+    let parent_header_bytes = match &message.parent_header {
+        Some(header) => serde_json::to_vec(header)?,
+        None => serde_json::to_vec(&serde_json::json!({}))?,
+    };
     let metadata_bytes = serde_json::to_vec(&message.metadata)?;
     let content_bytes = serde_json::to_vec(&message.content)?;
 
@@ -230,23 +234,24 @@ fn construct_zmq_message_for_iopub(
         &content_bytes,
     ])?;
 
-    let mut frames: Vec<Vec<u8>> = Vec::new();
-    frames.push(message.header.msg_type.as_bytes().to_vec());
-    frames.push(b"<IDS|MSG>".to_vec());
-    frames.push(signature.into_bytes());
-    frames.push(header_bytes);
-    frames.push(parent_header_bytes);
-    frames.push(metadata_bytes);
-    frames.push(content_bytes);
+    let frames_data: Vec<Vec<u8>> = vec![
+        message.header.msg_type.as_bytes().to_vec(),
+        b"<IDS|MSG>".to_vec(),
+        signature.into_bytes(),
+        header_bytes,
+        parent_header_bytes,
+        metadata_bytes,
+        content_bytes,
+    ];
 
-    // Create ZmqMessage from frames
-    if frames.is_empty() {
-        return Err("No frames to send".into());
+    if frames_data.is_empty() {
+        return Err(Box::from(
+            "Cannot create ZMQ message from empty frames_data",
+        ));
     }
-
-    let mut zmq_msg = ZmqMessage::from(frames[0].clone());
-    for frame in frames.into_iter().skip(1) {
-        zmq_msg.push_back(frame.into());
+    let mut zmq_msg = ZmqMessage::from(frames_data[0].clone());
+    for frame in frames_data.iter().skip(1) {
+        zmq_msg.push_back(frame.clone().into());
     }
     Ok(zmq_msg)
 }

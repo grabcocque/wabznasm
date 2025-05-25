@@ -1,5 +1,7 @@
+use crate::jupyter::errors::JupyterLocalResult;
 use jupyter_protocol::ConnectionInfo;
-use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 
 /// Represents the Jupyter connection configuration, loaded from a file.
@@ -9,7 +11,7 @@ pub type ConnectionConfig = ConnectionInfo;
 /// Extension trait to add convenience methods for loading ConnectionConfig from files.
 pub trait ConnectionConfigExt {
     /// Load connection config from a JSON file.
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>>
+    fn from_file<P: AsRef<Path>>(path: P) -> JupyterLocalResult<Self>
     where
         Self: Sized;
 
@@ -24,9 +26,10 @@ pub trait ConnectionConfigExt {
 }
 
 impl ConnectionConfigExt for ConnectionConfig {
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = fs::read_to_string(path)?;
-        let config: ConnectionConfig = serde_json::from_str(&content)?;
+    fn from_file<P: AsRef<Path>>(path: P) -> JupyterLocalResult<Self> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let config: ConnectionConfig = serde_json::from_reader(reader)?;
         Ok(config)
     }
 
@@ -46,6 +49,7 @@ impl ConnectionConfigExt for ConnectionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::NamedTempFile;
 
     #[test]

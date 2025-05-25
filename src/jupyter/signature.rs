@@ -1,3 +1,4 @@
+use crate::jupyter::ByteSlices;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::fmt;
@@ -48,7 +49,11 @@ impl SignatureVerifier {
         }
     }
 
-    pub fn verify(&self, signature: &str, message_parts: &[&[u8]]) -> Result<bool, SignatureError> {
+    pub fn verify(
+        &self,
+        signature: &str,
+        message_parts: ByteSlices,
+    ) -> Result<bool, SignatureError> {
         match self.scheme.as_str() {
             "hmac-sha256" => {
                 let mut mac = HmacSha256::new_from_slice(&self.key)
@@ -77,7 +82,7 @@ impl SignatureSigner {
         }
     }
 
-    pub fn sign(&self, message_parts: &[&[u8]]) -> Result<String, SignatureError> {
+    pub fn sign(&self, message_parts: ByteSlices) -> Result<String, SignatureError> {
         match self.scheme.as_str() {
             "hmac-sha256" => {
                 let mut mac = HmacSha256::new_from_slice(&self.key)

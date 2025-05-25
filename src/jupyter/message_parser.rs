@@ -1,4 +1,6 @@
+use crate::jupyter::errors::JupyterResult;
 use crate::jupyter::signature::SignatureVerifier;
+use crate::jupyter::{ByteSlice, IdentityFrames};
 use jupyter_protocol::{Header, JupyterMessageContent};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -8,7 +10,7 @@ use zeromq::ZmqMessage;
 #[derive(Debug, Clone)]
 pub struct ParsedMessage {
     /// Message identities (routing info from ZMQ).
-    pub identities: Vec<Vec<u8>>,
+    pub identities: IdentityFrames,
     /// HMAC signature of the message parts.
     pub signature: String,
     /// Deserialized message header.
@@ -27,8 +29,8 @@ impl ParsedMessage {
     pub fn parse(
         zmq_msg: &ZmqMessage,
         verifier: &SignatureVerifier, // For HMAC validation
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let frames: Vec<&[u8]> = zmq_msg.iter().map(|bytes| bytes.as_ref()).collect();
+    ) -> JupyterResult<Self> {
+        let frames: Vec<ByteSlice> = zmq_msg.iter().map(|bytes| bytes.as_ref()).collect();
 
         if frames.len() < 5 {
             // Identities can be empty, then <IDS|MSG>, sig, header, parent, meta, content
@@ -44,7 +46,8 @@ impl ParsedMessage {
             .position(|frame| *frame == b"<IDS|MSG>")
             .ok_or("Missing delimiter '<IDS|MSG>'")?;
 
-        let identities: Vec<Vec<u8>> = frames[..delimiter_pos].iter().map(|f| f.to_vec()).collect();
+        let identities: IdentityFrames =
+            frames[..delimiter_pos].iter().map(|f| f.to_vec()).collect();
 
         let signature_bytes = frames
             .get(delimiter_pos + 1)
