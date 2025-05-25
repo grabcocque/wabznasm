@@ -20,6 +20,9 @@ jobs:
       with:
         components: rustfmt, clippy
     
+    - name: Install tree-sitter CLI
+      run: npm install -g tree-sitter-cli
+    
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
@@ -57,6 +60,9 @@ jobs:
     
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+    
+    - name: Install tree-sitter CLI
+      run: npm install -g tree-sitter-cli
     
     - name: Install cargo-audit
       run: cargo install cargo-audit
