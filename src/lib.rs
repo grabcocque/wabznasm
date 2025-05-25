@@ -2,6 +2,7 @@
 pub mod environment;
 pub mod errors;
 pub mod evaluator;
+pub mod jupyter;
 pub mod parser;
 pub mod repl;
 #[cfg(test)]

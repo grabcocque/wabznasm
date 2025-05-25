@@ -2,7 +2,7 @@ use crate::environment::{Environment, Value};
 use crate::errors::{EvalError, EvalErrorKind};
 use crate::parser::{parse_expression, query_expression};
 use miette::Report;
-use std::rc::Rc;
+use std::sync::Arc;
 use tree_sitter::Node;
 
 fn get_node_text<'a>(node: Node<'a>, source: &'a str) -> Result<&'a str, String> {
@@ -312,7 +312,7 @@ impl Evaluator {
         Ok(Value::Function {
             params,
             body: body_text.to_string(),
-            closure: Some(Rc::new(env.clone())),
+            closure: Some(Arc::new(env.clone())),
         })
     }
 

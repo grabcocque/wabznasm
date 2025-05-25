@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "storage"]
+exclude = ["fuzz"]
 
 [package]
 name = "wabznasm"
@@ -12,15 +13,30 @@ license = "EPL-2.0"
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2"
 tree-sitter = "0.25.4"
-# LLVM codegen: enable appropriate LLVM version feature (e.g., llvm14-0)
-inkwell = { version = "0.6", features = ["llvm18-1"], default-features = false }
 color-eyre = "0.6"
 rustyline = "15.0.0"
 storage = { path = "storage" }
-# 'cc' is only used in build.rs
+# Jupyter kernel support - switching back to jupyter-protocol to avoid zeromq v0.3.5 issues
+jupyter-protocol = "0.6.0"
+zeromq = "0.4.1"
+tokio = { version = "1.45", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+html-escape = "0.2"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.8", features = ["v4"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 insta = "1"
+tempfile = "3.15.0"
 
 [build-dependencies]
 cc = "1"
+
+# Note: The jupyter crate has a zeromq dependency issue
+# We may need to find an alternative or wait for an update
