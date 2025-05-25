@@ -158,7 +158,7 @@ pub struct TableIterator<'a> {
     max_index: usize,
 }
 
-impl<'a> Iterator for TableIterator<'a> {
+impl Iterator for TableIterator<'_> {
     type Item = StorageResult<Row>;
 
     fn next(&mut self) -> Option<Self::Item> {

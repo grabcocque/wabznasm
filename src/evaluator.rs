@@ -84,9 +84,9 @@ impl Evaluator {
     }
 
     /// Evaluate a node with an environment, returning a Value
-    pub fn eval_with_env<'a>(
+    pub fn eval_with_env(
         &self,
-        node: Node<'a>,
+        node: Node<'_>,
         src: &str,
         env: &mut Environment,
     ) -> Result<Value, EvalError> {
@@ -120,7 +120,7 @@ impl Evaluator {
     }
 
     /// Legacy method for backward compatibility (integers only)
-    pub fn eval<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    pub fn eval(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let mut env = Environment::new();
         match self.eval_with_env(node, src, &mut env)? {
             Value::Integer(n) => Ok(n),
@@ -151,7 +151,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_binary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_binary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         // Binary operation if operator field exists, otherwise fallback to single child
         if let Some(opn) = node.child_by_field_name("operator") {
             // Get all required fields at once to avoid redundant lookups
@@ -172,7 +172,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_unary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_unary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let operand = self.child(node, "operand")?;
             let v = self.eval(operand, src)?;
@@ -186,7 +186,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_power<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_power(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let base = self.child(node, "base")?;
             let exp = self.child(node, "exponent")?;
@@ -211,7 +211,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_postfix<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_postfix(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let operand = self.child(node, "operand")?;
             let v = self.eval(operand, src)?;
@@ -223,7 +223,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_primary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_primary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if let Some(expr) = node.child_by_field_name("expression") {
             self.eval(expr, src)
         } else if let Some(num) = node.named_child(0) {
@@ -236,7 +236,7 @@ impl Evaluator {
         }
     }
 
-    fn visit_number<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_number(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let txt = get_node_text(node, src).map_err(|e| {
             EvalError::new(
                 EvalErrorKind::Other(format!("Failed to get number text: {}", e)),
@@ -587,7 +587,7 @@ impl Evaluator {
 
 /// Entry point invoked by query_expression
 /// Adapter for visitor-based evaluation
-pub fn eval_node<'a>(node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+pub fn eval_node(node: Node<'_>, src: &str) -> Result<i64, EvalError> {
     Evaluator::new().eval(node, src)
 }
 
