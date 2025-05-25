@@ -3,7 +3,7 @@
 repos:
   # General hooks for all file types
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -21,6 +21,8 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
+      # Run rustfmt for code formatting
+      - id: fmt
       # Run clippy for linting
       - id: clippy
         args: ["--all-targets", "--all-features", "--", "-D", "warnings"]
@@ -29,7 +31,7 @@ repos:
         args: ["--all-targets", "--all-features"]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.0.0
+    rev: v4.2.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
