@@ -9,7 +9,9 @@ fn test_simple_assignment() {
 
     // Test: x: 42
     let tree = parse_expression("x: 42").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "x: 42", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "x: 42", &mut env)
+        .unwrap();
 
     assert_eq!(result, Value::Integer(42));
     assert_eq!(env.lookup("x"), Some(&Value::Integer(42)));
@@ -22,7 +24,9 @@ fn test_function_definition() {
 
     // Test: f: {x+1}
     let tree = parse_expression("f: {x+1}").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "f: {x+1}", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "f: {x+1}", &mut env)
+        .unwrap();
 
     match result {
         Value::Function { params, body, .. } => {
@@ -44,7 +48,9 @@ fn test_function_definition_with_params() {
 
     // Test: add: {[x;y] x+y}
     let tree = parse_expression("add: {[x;y] x+y}").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "add: {[x;y] x+y}", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "add: {[x;y] x+y}", &mut env)
+        .unwrap();
 
     match result {
         Value::Function { params, body, .. } => {
@@ -65,7 +71,9 @@ fn test_identifier_lookup() {
 
     // Test: x
     let tree = parse_expression("x").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "x", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "x", &mut env)
+        .unwrap();
 
     assert_eq!(result, Value::Integer(42));
 }
@@ -80,11 +88,15 @@ fn test_simple_function_call() {
 
     // Define function: f: {x+1} (captures x from closure)
     let tree = parse_expression("f: {x+1}").unwrap();
-    evaluator.eval_with_env(tree.root_node(), "f: {x+1}", &mut env).unwrap();
+    evaluator
+        .eval_with_env(tree.root_node(), "f: {x+1}", &mut env)
+        .unwrap();
 
     // Call function: f[]
     let tree = parse_expression("f[]").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "f[]", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "f[]", &mut env)
+        .unwrap();
 
     assert_eq!(result, Value::Integer(6)); // x+1 = 5+1 = 6
 }
@@ -96,11 +108,15 @@ fn test_function_call_with_args() {
 
     // Define function: add: {[x;y] x+y}
     let tree = parse_expression("add: {[x;y] x+y}").unwrap();
-    evaluator.eval_with_env(tree.root_node(), "add: {[x;y] x+y}", &mut env).unwrap();
+    evaluator
+        .eval_with_env(tree.root_node(), "add: {[x;y] x+y}", &mut env)
+        .unwrap();
 
     // Call function: add[2;3]
     let tree = parse_expression("add[2;3]").unwrap();
-    let result = evaluator.eval_with_env(tree.root_node(), "add[2;3]", &mut env).unwrap();
+    let result = evaluator
+        .eval_with_env(tree.root_node(), "add[2;3]", &mut env)
+        .unwrap();
 
     assert_eq!(result, Value::Integer(5)); // 2+3 = 5
 }

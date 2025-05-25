@@ -6,9 +6,9 @@
 //! - Efficient lookup with scope chain traversal
 //! - Support for closures and nested function definitions
 
+use crate::errors::{EvalError, EvalErrorKind};
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::errors::{EvalError, EvalErrorKind};
 use tree_sitter::Node;
 
 /// A value that can be stored in the environment
@@ -31,7 +31,18 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Integer(a), Value::Integer(b)) => a == b,
-            (Value::Function { params: p1, body: b1, .. }, Value::Function { params: p2, body: b2, .. }) => {
+            (
+                Value::Function {
+                    params: p1,
+                    body: b1,
+                    ..
+                },
+                Value::Function {
+                    params: p2,
+                    body: b2,
+                    ..
+                },
+            ) => {
                 // Compare functions by structure, not closure (since Rc<Environment> is hard to compare)
                 p1 == p2 && b1 == b2
             }
