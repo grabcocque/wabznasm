@@ -67,7 +67,7 @@ impl ParsedMessage {
 
         // Verify signature - convert signature_bytes to &str for verify method
         let signature_str = std::str::from_utf8(signature_bytes)?;
-        verifier.verify(
+        let signature_valid = verifier.verify(
             signature_str,
             &[
                 header_bytes,
@@ -76,6 +76,10 @@ impl ParsedMessage {
                 content_bytes,
             ],
         )?;
+
+        if !signature_valid {
+            return Err("Signature verification failed".into());
+        }
 
         let signature = signature_str.to_string(); // Store the verified signature string
 

@@ -20,6 +20,11 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false # cargo fmt --all handles file discovery
+      - id: cargo-test
+        name: Run cargo test
+        entry: cargo test --quiet
+        language: system
+        pass_filenames: false
 
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
