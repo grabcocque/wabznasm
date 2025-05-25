@@ -23,6 +23,11 @@ jobs:
     - name: Install tree-sitter CLI
       run: npm install -g tree-sitter-cli
 
+    - name: Install LLVM
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y llvm-18-dev libclang-18-dev
+
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
@@ -63,6 +68,11 @@ jobs:
 
     - name: Install tree-sitter CLI
       run: npm install -g tree-sitter-cli
+
+    - name: Install LLVM
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y llvm-18-dev libclang-18-dev
 
     - name: Install cargo-audit
       run: cargo install cargo-audit
