@@ -3,37 +3,42 @@
 repos:
   # General hooks for all file types
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
       - id: check-yaml
       - id: check-toml
-      - id: check-json
-      - id: check-merge-conflict
-      - id: check-case-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
       - id: check-added-large-files
-        args: ["--maxkb=1000"]
-      - id: mixed-line-ending
-        args: ["--fix=lf"]
 
   # Rust-specific hooks
+  - repo: local
+    hooks:
+      - id: cargo-fmt-apply
+        name: cargo fmt (apply changes)
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false # cargo fmt --all handles file discovery
+      - id: cargo-test
+        name: Run cargo test
+        entry: cargo test --quiet
+        language: system
+        pass_filenames: false
+
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
-      # Run clippy for linting
       - id: clippy
         args: ["--all-targets", "--all-features", "--", "-D", "warnings"]
-      # Run cargo check
       - id: cargo-check
         args: ["--all-targets", "--all-features"]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.0.0
+    rev: v4.2.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
-        args: [optional-scope]
 
 # Global settings
 default_stages: [pre-commit]

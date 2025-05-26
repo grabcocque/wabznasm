@@ -12,7 +12,7 @@ const PREC = {
 
 module.exports = grammar({
   name: "calc",
-  extras: ($) => [/[\s\t\n\r]+/],
+  extras: ($) => [/[\s\t\n\r]+/, $.comment],
 
   rules: {
     // The top-level entry point - simplified to avoid conflicts
@@ -182,5 +182,8 @@ module.exports = grammar({
 
     // Integer literals
     number: () => /\d+/,
+
+    // Q/KDB+ style comments - only end-of-line comments to avoid division ambiguity
+    comment: () => /\\[^\r\n]*/,
   },
 });

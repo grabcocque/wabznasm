@@ -9,7 +9,7 @@ use crate::{
 use memmap2::{Mmap, MmapOptions};
 use std::{
     collections::HashMap,
-    fs::{create_dir_all, File, OpenOptions},
+    fs::{File, OpenOptions, create_dir_all},
     io::{Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
@@ -51,9 +51,10 @@ impl SplayedTable {
     pub fn open(config: QStoreConfig) -> StorageResult<Self> {
         let table_path = config.table_path();
         if !table_path.exists() {
-            return Err(StorageError::Configuration(
-                format!("Table directory does not exist: {:?}", table_path)
-            ));
+            return Err(StorageError::Configuration(format!(
+                "Table directory does not exist: {:?}",
+                table_path
+            )));
         }
 
         let mut columns = HashMap::new();
@@ -66,10 +67,7 @@ impl SplayedTable {
 
             if path.is_file() {
                 if let Some(column_name) = path.file_name().and_then(|n| n.to_str()) {
-                    let file = OpenOptions::new()
-                        .read(true)
-                        .append(true)
-                        .open(&path)?;
+                    let file = OpenOptions::new().read(true).append(true).open(&path)?;
 
                     // Count entries in this column file to determine row count
                     let count = Self::count_entries_in_file(&path)?;
@@ -81,12 +79,15 @@ impl SplayedTable {
                         None
                     };
 
-                    columns.insert(column_name.to_string(), ColumnData {
-                        mmap,
-                        file,
-                        path: path.clone(),
-                        count,
-                    });
+                    columns.insert(
+                        column_name.to_string(),
+                        ColumnData {
+                            mmap,
+                            file,
+                            path: path.clone(),
+                            count,
+                        },
+                    );
                 }
             }
         }
@@ -132,7 +133,7 @@ impl SplayedTable {
         if index >= self.row_count {
             return Err(StorageError::InvalidRowIndex {
                 index,
-                max: self.row_count
+                max: self.row_count,
             });
         }
 
@@ -159,19 +160,25 @@ impl SplayedTable {
             .append(true)
             .open(&column_path)?;
 
-        self.columns.insert(column_name.to_string(), ColumnData {
-            mmap: None,
-            file,
-            path: column_path,
-            count: 0,
-        });
+        self.columns.insert(
+            column_name.to_string(),
+            ColumnData {
+                mmap: None,
+                file,
+                path: column_path,
+                count: 0,
+            },
+        );
 
         Ok(())
     }
 
-    /// Write a value to a column file using MessagePack
-    fn write_value_to_column_static(column_data: &mut ColumnData, value: &ScalarValue) -> StorageResult<()> {
-        let encoded = rmp_serde::to_vec(value)?;
+    /// Write a value to a column file using bincode
+    fn write_value_to_column_static(
+        column_data: &mut ColumnData,
+        value: &ScalarValue,
+    ) -> StorageResult<()> {
+        let encoded = bincode::serialize(value)?;
 
         // Write length prefix (4 bytes) followed by data
         let len_bytes = (encoded.len() as u32).to_le_bytes();
@@ -188,7 +195,11 @@ impl SplayedTable {
     }
 
     /// Read a value from a column file
-    fn read_value_from_column(&self, column_data: &ColumnData, index: usize) -> StorageResult<ScalarValue> {
+    fn read_value_from_column(
+        &self,
+        column_data: &ColumnData,
+        index: usize,
+    ) -> StorageResult<ScalarValue> {
         if index >= column_data.count {
             return Ok(ScalarValue::Null);
         }
@@ -216,7 +227,7 @@ impl SplayedTable {
         let mut data = vec![0u8; len];
         file.read_exact(&mut data)?;
 
-        let value: ScalarValue = rmp_serde::from_slice(&data)?;
+        let value: ScalarValue = bincode::deserialize(&data)?;
         Ok(value)
     }
 
@@ -317,6 +328,9 @@ mod tests {
         assert_eq!(table.count().unwrap(), 1);
 
         let row = table.get(0).unwrap();
-        assert_eq!(row.get("test"), Some(&ScalarValue::Utf8("hello".to_string())));
+        assert_eq!(
+            row.get("test"),
+            Some(&ScalarValue::Utf8("hello".to_string()))
+        );
     }
 }

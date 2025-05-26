@@ -2,7 +2,7 @@ use crate::environment::{Environment, Value};
 use crate::errors::{EvalError, EvalErrorKind};
 use crate::parser::{parse_expression, query_expression};
 use miette::Report;
-use std::rc::Rc;
+use std::sync::Arc;
 use tree_sitter::Node;
 
 fn get_node_text<'a>(node: Node<'a>, source: &'a str) -> Result<&'a str, String> {
@@ -84,17 +84,50 @@ impl Evaluator {
     }
 
     /// Evaluate a node with an environment, returning a Value
-    pub fn eval_with_env<'a>(&self, node: Node<'a>, src: &str, env: &mut Environment) -> Result<Value, EvalError> {
+    pub fn eval_with_env(
+        &self,
+        node: Node<'_>,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<Value, EvalError> {
         match node.kind() {
+            // Handle source_file with multiple children
+            "source_file" => {
+                let mut last_result = None;
+                let mut cursor = node.walk();
+
+                for child in node.named_children(&mut cursor) {
+                    match child.kind() {
+                        "comment" => continue, // Skip comments
+                        "statement" => {
+                            last_result = Some(self.eval_with_env(child, src, env)?);
+                        }
+                        _ => {
+                            // Handle other non-comment nodes as statements
+                            last_result = Some(self.eval_with_env(child, src, env)?);
+                        }
+                    }
+                }
+
+                last_result.ok_or_else(|| {
+                    EvalError::new(
+                        EvalErrorKind::Other("No statements found in source file".into()),
+                        node,
+                    )
+                })
+            }
+
             // Delegate to child for wrapper nodes
-            "source_file" | "expression" | "statement" => {
+            "expression" | "statement" => {
                 let child = self.named_child(node)?;
                 self.eval_with_env(child, src, env)
             }
 
             // Arithmetic expressions (return integer values)
             "number" => Ok(Value::Integer(self.visit_number_raw(node, src)?)),
-            "additive" | "multiplicative" => Ok(Value::Integer(self.visit_binary_raw(node, src, env)?)),
+            "additive" | "multiplicative" => {
+                Ok(Value::Integer(self.visit_binary_raw(node, src, env)?))
+            }
             "primary" => self.visit_primary_with_env(node, src, env),
             "unary" => Ok(Value::Integer(self.visit_unary_raw(node, src, env)?)),
             "power" => Ok(Value::Integer(self.visit_power_raw(node, src, env)?)),
@@ -113,7 +146,7 @@ impl Evaluator {
     }
 
     /// Legacy method for backward compatibility (integers only)
-    pub fn eval<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    pub fn eval(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let mut env = Environment::new();
         match self.eval_with_env(node, src, &mut env)? {
             Value::Integer(n) => Ok(n),
@@ -144,7 +177,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_binary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_binary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         // Binary operation if operator field exists, otherwise fallback to single child
         if let Some(opn) = node.child_by_field_name("operator") {
             // Get all required fields at once to avoid redundant lookups
@@ -165,7 +198,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_unary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_unary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let operand = self.child(node, "operand")?;
             let v = self.eval(operand, src)?;
@@ -179,7 +212,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_power<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_power(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let base = self.child(node, "base")?;
             let exp = self.child(node, "exponent")?;
@@ -204,7 +237,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_postfix<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_postfix(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if node.child_by_field_name("operator").is_some() {
             let operand = self.child(node, "operand")?;
             let v = self.eval(operand, src)?;
@@ -216,7 +249,7 @@ impl Evaluator {
     }
 
     #[allow(dead_code)]
-    fn visit_primary<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_primary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         if let Some(expr) = node.child_by_field_name("expression") {
             self.eval(expr, src)
         } else if let Some(num) = node.named_child(0) {
@@ -229,7 +262,7 @@ impl Evaluator {
         }
     }
 
-    fn visit_number<'a>(&self, node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+    fn visit_number(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let txt = get_node_text(node, src).map_err(|e| {
             EvalError::new(
                 EvalErrorKind::Other(format!("Failed to get number text: {}", e)),
@@ -243,24 +276,34 @@ impl Evaluator {
     // New environment-aware visitor methods
 
     /// Visit identifier and lookup in environment
-    fn visit_identifier(&self, node: Node, src: &str, env: &Environment) -> Result<Value, EvalError> {
-        let name = get_node_text(node, src).map_err(|e| {
-            EvalError::new(EvalErrorKind::Other(e), node)
-        })?;
+    fn visit_identifier(
+        &self,
+        node: Node,
+        src: &str,
+        env: &Environment,
+    ) -> Result<Value, EvalError> {
+        let name =
+            get_node_text(node, src).map_err(|e| EvalError::new(EvalErrorKind::Other(e), node))?;
 
         env.get(name, node).cloned()
     }
 
     /// Visit assignment: name: value or name: {body}
-    fn visit_assignment(&self, node: Node, src: &str, env: &mut Environment) -> Result<Value, EvalError> {
-        let name_node = node.child_by_field_name("name")
+    fn visit_assignment(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<Value, EvalError> {
+        let name_node = node
+            .child_by_field_name("name")
             .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
-        let value_node = node.child_by_field_name("value")
+        let value_node = node
+            .child_by_field_name("value")
             .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
 
-        let name = get_node_text(name_node, src).map_err(|e| {
-            EvalError::new(EvalErrorKind::Other(e), name_node)
-        })?;
+        let name = get_node_text(name_node, src)
+            .map_err(|e| EvalError::new(EvalErrorKind::Other(e), name_node))?;
 
         let value = match value_node.kind() {
             "function_body" => self.visit_function_body(value_node, src, env)?,
@@ -272,14 +315,19 @@ impl Evaluator {
     }
 
     /// Visit function body: {expr} or {[params] expr}
-    fn visit_function_body(&self, node: Node, src: &str, env: &Environment) -> Result<Value, EvalError> {
-        let body_node = node.child_by_field_name("body")
+    fn visit_function_body(
+        &self,
+        node: Node,
+        src: &str,
+        env: &Environment,
+    ) -> Result<Value, EvalError> {
+        let body_node = node
+            .child_by_field_name("body")
             .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
         let params_node = node.child_by_field_name("params");
 
-        let body_text = get_node_text(body_node, src).map_err(|e| {
-            EvalError::new(EvalErrorKind::Other(e), body_node)
-        })?;
+        let body_text = get_node_text(body_node, src)
+            .map_err(|e| EvalError::new(EvalErrorKind::Other(e), body_node))?;
 
         let params = if let Some(params_node) = params_node {
             self.extract_parameter_list(params_node, src)?
@@ -290,7 +338,7 @@ impl Evaluator {
         Ok(Value::Function {
             params,
             body: body_text.to_string(),
-            closure: Some(Rc::new(env.clone())),
+            closure: Some(Arc::new(env.clone())),
         })
     }
 
@@ -303,9 +351,8 @@ impl Evaluator {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             if child.kind() == "identifier" {
-                let param_name = get_node_text(child, src).map_err(|e| {
-                    EvalError::new(EvalErrorKind::Other(e), child)
-                })?;
+                let param_name = get_node_text(child, src)
+                    .map_err(|e| EvalError::new(EvalErrorKind::Other(e), child))?;
                 params.push(param_name.to_string());
             }
         }
@@ -314,19 +361,31 @@ impl Evaluator {
     }
 
     /// Visit function call: func[args]
-    fn visit_function_call(&self, node: Node, src: &str, env: &mut Environment) -> Result<Value, EvalError> {
-        let func_node = node.child_by_field_name("function")
+    fn visit_function_call(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<Value, EvalError> {
+        let func_node = node
+            .child_by_field_name("function")
             .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
         let args_node = node.child_by_field_name("args");
 
         // Get function value
         let func_value = self.visit_identifier(func_node, src, env)?;
         let (params, body, closure) = match func_value {
-            Value::Function { params, body, closure } => (params, body, closure),
-            _ => return Err(EvalError::new(
-                EvalErrorKind::Other("Cannot call non-function value".into()),
-                func_node,
-            )),
+            Value::Function {
+                params,
+                body,
+                closure,
+            } => (params, body, closure),
+            _ => {
+                return Err(EvalError::new(
+                    EvalErrorKind::Other("Cannot call non-function value".into()),
+                    func_node,
+                ));
+            }
         };
 
         // Evaluate arguments
@@ -342,7 +401,10 @@ impl Evaluator {
 
         // Parse and evaluate function body
         let tree = parse_expression(&body).map_err(|e| {
-            EvalError::new(EvalErrorKind::Other(format!("Function body parse error: {}", e)), node)
+            EvalError::new(
+                EvalErrorKind::Other(format!("Function body parse error: {}", e)),
+                node,
+            )
         })?;
 
         self.eval_with_env(tree.root_node(), &body, &mut call_env)
@@ -350,7 +412,12 @@ impl Evaluator {
 
     /// Extract argument values from argument list: expr;expr;expr
     #[allow(clippy::type_complexity)]
-    fn extract_argument_list(&self, node: Node, src: &str, env: &mut Environment) -> Result<Vec<Value>, EvalError> {
+    fn extract_argument_list(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<Vec<Value>, EvalError> {
         let mut args = Vec::new();
 
         // Walk through all named children looking for argument expressions
@@ -366,7 +433,12 @@ impl Evaluator {
     }
 
     /// Visit primary with environment support
-    fn visit_primary_with_env(&self, node: Node, src: &str, env: &mut Environment) -> Result<Value, EvalError> {
+    fn visit_primary_with_env(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<Value, EvalError> {
         let child = self.named_child(node)?;
         self.eval_with_env(child, src, env)
     }
@@ -377,7 +449,12 @@ impl Evaluator {
         self.visit_number(node, src)
     }
 
-    fn visit_binary_raw(&self, node: Node, src: &str, env: &mut Environment) -> Result<i64, EvalError> {
+    fn visit_binary_raw(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<i64, EvalError> {
         // Binary operation if operator field exists, otherwise fallback to single child
         if let Some(opn) = node.child_by_field_name("operator") {
             let lhs = self.child(node, "left")?;
@@ -385,18 +462,22 @@ impl Evaluator {
 
             let left_val = match self.eval_with_env(lhs, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in arithmetic".into()),
-                    lhs,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in arithmetic".into()),
+                        lhs,
+                    ));
+                }
             };
 
             let right_val = match self.eval_with_env(rhs, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in arithmetic".into()),
-                    rhs,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in arithmetic".into()),
+                        rhs,
+                    ));
+                }
             };
 
             let op = self.op_text(opn, src)?;
@@ -414,15 +495,22 @@ impl Evaluator {
         }
     }
 
-    fn visit_unary_raw(&self, node: Node, src: &str, env: &mut Environment) -> Result<i64, EvalError> {
+    fn visit_unary_raw(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<i64, EvalError> {
         if let Some(_op) = node.child_by_field_name("operator") {
             let operand_node = self.child(node, "operand")?;
             let operand = match self.eval_with_env(operand_node, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in unary operation".into()),
-                    operand_node,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in unary operation".into()),
+                        operand_node,
+                    ));
+                }
             };
             Ok(-operand)
         } else {
@@ -437,25 +525,34 @@ impl Evaluator {
         }
     }
 
-    fn visit_power_raw(&self, node: Node, src: &str, env: &mut Environment) -> Result<i64, EvalError> {
+    fn visit_power_raw(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<i64, EvalError> {
         if let Some(_op) = node.child_by_field_name("operator") {
             let base_node = self.child(node, "base")?;
             let exp_node = self.child(node, "exponent")?;
 
             let base = match self.eval_with_env(base_node, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in power operation".into()),
-                    base_node,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in power operation".into()),
+                        base_node,
+                    ));
+                }
             };
 
             let exponent = match self.eval_with_env(exp_node, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in power operation".into()),
-                    exp_node,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in power operation".into()),
+                        exp_node,
+                    ));
+                }
             };
 
             if exponent < 0 {
@@ -466,7 +563,10 @@ impl Evaluator {
             }
 
             base.checked_pow(exponent as u32).ok_or_else(|| {
-                EvalError::new(EvalErrorKind::IntegerOverflow("exponentiation".into()), node)
+                EvalError::new(
+                    EvalErrorKind::IntegerOverflow("exponentiation".into()),
+                    node,
+                )
             })
         } else {
             let child = self.named_child(node)?;
@@ -480,15 +580,22 @@ impl Evaluator {
         }
     }
 
-    fn visit_postfix_raw(&self, node: Node, src: &str, env: &mut Environment) -> Result<i64, EvalError> {
+    fn visit_postfix_raw(
+        &self,
+        node: Node,
+        src: &str,
+        env: &mut Environment,
+    ) -> Result<i64, EvalError> {
         if let Some(_op) = node.child_by_field_name("operator") {
             let operand_node = self.child(node, "operand")?;
             let operand = match self.eval_with_env(operand_node, src, env)? {
                 Value::Integer(n) => n,
-                _ => return Err(EvalError::new(
-                    EvalErrorKind::Other("Expected integer in factorial".into()),
-                    operand_node,
-                )),
+                _ => {
+                    return Err(EvalError::new(
+                        EvalErrorKind::Other("Expected integer in factorial".into()),
+                        operand_node,
+                    ));
+                }
             };
             calculate_factorial(operand, node)
         } else {
@@ -506,7 +613,7 @@ impl Evaluator {
 
 /// Entry point invoked by query_expression
 /// Adapter for visitor-based evaluation
-pub fn eval_node<'a>(node: Node<'a>, src: &str) -> Result<i64, EvalError> {
+pub fn eval_node(node: Node<'_>, src: &str) -> Result<i64, EvalError> {
     Evaluator::new().eval(node, src)
 }
 

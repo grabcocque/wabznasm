@@ -12,7 +12,9 @@ pub fn run() -> Result<(), eyre::Report> {
     let mut env = Environment::new();
     let evaluator = Evaluator::new();
 
-    println!("wabznasm REPL: enter expressions, assignments, or function definitions. Type 'exit' to quit");
+    println!(
+        "wabznasm REPL: enter expressions, assignments, or function definitions. Type 'exit' to quit"
+    );
     println!("Examples: 1+2, f: {{x+1}}, add: {{[x;y] x+y}}, f[5], add[2;3]");
 
     loop {
@@ -29,19 +31,17 @@ pub fn run() -> Result<(), eyre::Report> {
 
                 // Parse and evaluate with persistent environment
                 match parse_expression(input) {
-                    Ok(tree) => {
-                        match evaluator.eval_with_env(tree.root_node(), input, &mut env) {
-                            Ok(Value::Integer(val)) => println!("= {}", val),
-                            Ok(Value::Function { params, .. }) => {
-                                if params.is_empty() {
-                                    println!("= {{expr}}");
-                                } else {
-                                    println!("= {{[{}] expr}}", params.join(";"));
-                                }
+                    Ok(tree) => match evaluator.eval_with_env(tree.root_node(), input, &mut env) {
+                        Ok(Value::Integer(val)) => println!("= {}", val),
+                        Ok(Value::Function { params, .. }) => {
+                            if params.is_empty() {
+                                println!("= {{expr}}");
+                            } else {
+                                println!("= {{[{}] expr}}", params.join(";"));
                             }
-                            Err(e) => eprintln!("Error: {:?}", e),
                         }
-                    }
+                        Err(e) => eprintln!("Error: {:?}", e),
+                    },
                     Err(e) => eprintln!("Parse error: {:?}", e),
                 }
             }

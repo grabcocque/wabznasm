@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "fuzz"
 version = "0.1.0"
@@ -14,11 +16,5 @@ cargo-fuzz = true
 [[bin]]
 name = "parser_fuzz"
 path = "fuzz_targets/parser_fuzz.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "jit_fuzz"
-path = "fuzz_targets/jit_fuzz.rs"
 test = false
 doc = false

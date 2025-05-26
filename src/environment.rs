@@ -6,9 +6,9 @@
 //! - Efficient lookup with scope chain traversal
 //! - Support for closures and nested function definitions
 
-use std::collections::HashMap;
-use std::rc::Rc;
 use crate::errors::{EvalError, EvalErrorKind};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tree_sitter::Node;
 
 /// A value that can be stored in the environment
@@ -23,7 +23,7 @@ pub enum Value {
         /// Function body as source code (we'll store the AST node later)
         body: String,
         /// Captured lexical environment (closure)
-        closure: Option<Rc<Environment>>,
+        closure: Option<Arc<Environment>>,
     },
 }
 
@@ -31,8 +31,19 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Integer(a), Value::Integer(b)) => a == b,
-            (Value::Function { params: p1, body: b1, .. }, Value::Function { params: p2, body: b2, .. }) => {
-                // Compare functions by structure, not closure (since Rc<Environment> is hard to compare)
+            (
+                Value::Function {
+                    params: p1,
+                    body: b1,
+                    ..
+                },
+                Value::Function {
+                    params: p2,
+                    body: b2,
+                    ..
+                },
+            ) => {
+                // Compare functions by structure, not closure (since Arc<Environment> is hard to compare)
                 p1 == p2 && b1 == b2
             }
             _ => false,
@@ -69,7 +80,7 @@ pub struct Environment {
     /// Variable bindings in this scope
     bindings: HashMap<String, Value>,
     /// Parent environment for lexical scoping
-    parent: Option<Rc<Environment>>,
+    parent: Option<Arc<Environment>>,
 }
 
 impl Environment {
@@ -82,7 +93,7 @@ impl Environment {
     }
 
     /// Create a new environment with a parent (nested scope)
-    pub fn with_parent(parent: Rc<Environment>) -> Self {
+    pub fn with_parent(parent: Arc<Environment>) -> Self {
         Self {
             bindings: HashMap::new(),
             parent: Some(parent),
@@ -136,7 +147,7 @@ impl Environment {
 
     /// Create a new child environment for function calls
     pub fn extend(&self) -> Environment {
-        Environment::with_parent(Rc::new(self.clone()))
+        Environment::with_parent(Arc::new(self.clone()))
     }
 
     /// Create a new child environment and bind parameters to arguments
@@ -207,7 +218,7 @@ mod tests {
         let mut global = Environment::new();
         global.define("global_var".to_string(), Value::Integer(1));
 
-        let mut local = Environment::with_parent(Rc::new(global));
+        let mut local = Environment::with_parent(Arc::new(global));
         local.define("local_var".to_string(), Value::Integer(2));
 
         // Local environment can see both local and global variables

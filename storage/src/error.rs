@@ -12,10 +12,7 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
 
     #[error("Serialization error: {0}")]
-    Serialization(#[from] rmp_serde::encode::Error),
-
-    #[error("Deserialization error: {0}")]
-    Deserialization(#[from] rmp_serde::decode::Error),
+    Serialization(#[from] Box<bincode::ErrorKind>),
 
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow2::error::Error),

@@ -240,7 +240,7 @@ Used to organize variables and functions.
 ## Syntax Notes
 
 - **Evaluation Order:** Right-to-left (or left-of-right). [21, 26]
-- **Comments:** `/` for single line, `\` starts multi-line, `/` ends multi-line. [3]
+- **Comments:** `\` for end-of-line comments only (avoids ambiguity with division).
 - **Function Calls:** `f[arg1; arg2]` or `arg1 f arg2` (infix for dyadic) or `f arg` (prefix unary, brackets often optional). [26]
 - **List Notation:** Items separated by spaces for numeric/temporal vectors [7]; enclosed in `()` for general lists; symbols prefixed with `` ` `` [7].
 - **Assignment:** `:` for local/functional, `::` for global. [26, 29]
