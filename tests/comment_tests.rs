@@ -7,7 +7,7 @@ use wabznasm::parser::parse_expression;
 fn test_backslash_comment_only() {
     let mut env = Environment::new();
     let mut evaluator = Evaluator::new();
-    let mut interner = Rodeo::new();
+    let mut interner = Rodeo::default();
 
     // Test that only backslash comments work (to avoid division ambiguity)
     let tree = parse_expression("x: 42 \\ This is a backslash comment").unwrap();
@@ -30,7 +30,7 @@ fn test_backslash_comment_only() {
 fn test_end_of_line_comment() {
     let mut env = Environment::new();
     let mut evaluator = Evaluator::new();
-    let mut interner = Rodeo::new();
+    let mut interner = Rodeo::default();
 
     // Test end-of-line comment with \
     let tree = parse_expression("x: 42 \\ This is an end-of-line comment").unwrap();

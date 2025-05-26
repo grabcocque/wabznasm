@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn test_environment_basic_operations() {
         let mut env = Environment::new();
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
 
         // Test binding and lookup
         env.define("x".to_string(), Value::Integer(42), &mut interner);
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_environment_lexical_scoping() {
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
         let mut global = Environment::new();
         global.define("global_var".to_string(), Value::Integer(1), &mut interner);
 
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_environment_extension() {
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
         let mut env = Environment::new();
         env.define("x".to_string(), Value::Integer(42), &mut interner);
 
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_parameter_binding() {
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
         let env = Environment::new();
         let param_names = ["x".to_string(), "y".to_string()];
         let params: Vec<InternedString> = param_names
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_function_value() {
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
         let func = Value::new_function(&["x".to_string()], "x+1", None, &mut interner);
 
         assert!(func.is_function());
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_environment_properties() {
-        let mut interner = Rodeo::new();
+        let mut interner = Rodeo::default();
         let mut env = Environment::new();
         assert!(env.is_empty());
         assert_eq!(env.size(), 0);
