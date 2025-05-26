@@ -3,8 +3,8 @@ use tempfile::NamedTempFile;
 use wabznasm::jupyter::connection::{ConnectionConfig, ConnectionConfigExt};
 use wabznasm::jupyter::kernel::JupyterKernelRunner;
 
-#[test]
-fn test_connection_config_parsing() {
+#[tokio::test]
+async fn test_connection_config_parsing() {
     // Create a test connection file
     let config_json = serde_json::json!({
         "transport": "tcp",

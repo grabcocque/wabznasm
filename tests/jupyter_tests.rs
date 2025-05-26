@@ -8,8 +8,9 @@ use wabznasm::jupyter::{
 
 #[test]
 fn test_display_formatter_integer() {
+    let local_interner = lasso::Rodeo::default();
     let value = Value::Integer(42);
-    let display_data = DisplayFormatter::format_value(&value);
+    let display_data = DisplayFormatter::format_value(&value, &local_interner);
 
     assert!(display_data.contains_key("text/plain"));
     assert!(display_data.contains_key("text/html"));
@@ -20,12 +21,13 @@ fn test_display_formatter_integer() {
 
 #[test]
 fn test_display_formatter_function() {
+    let mut local_interner = lasso::Rodeo::default();
     let value = Value::Function {
-        params: vec!["x".to_string()],
-        body: "x+1".to_string(),
+        params: vec![local_interner.get_or_intern("x")],
+        body: local_interner.get_or_intern("x+1"),
         closure: None,
     };
-    let display_data = DisplayFormatter::format_value(&value);
+    let display_data = DisplayFormatter::format_value(&value, &local_interner);
 
     assert!(display_data.contains_key("text/plain"));
     assert!(display_data.contains_key("text/html"));
@@ -36,12 +38,13 @@ fn test_display_formatter_function() {
 
 #[test]
 fn test_display_formatter_function_no_params() {
+    let mut local_interner = lasso::Rodeo::default();
     let value = Value::Function {
         params: vec![],
-        body: "42".to_string(),
+        body: local_interner.get_or_intern("42"),
         closure: None,
     };
-    let display_data = DisplayFormatter::format_value(&value);
+    let display_data = DisplayFormatter::format_value(&value, &local_interner);
 
     let plain_text = display_data.get("text/plain").unwrap().as_str().unwrap();
     assert_eq!(plain_text, "{42}");
@@ -49,8 +52,9 @@ fn test_display_formatter_function_no_params() {
 
 #[test]
 fn test_jupyter_display_trait() {
+    let local_interner = lasso::Rodeo::default();
     let value = Value::Integer(123);
-    let display_data = value.to_display_data();
+    let display_data = value.to_display_data(&local_interner);
 
     assert!(display_data.contains_key("text/plain"));
     let plain_text = display_data.get("text/plain").unwrap().as_str().unwrap();
@@ -59,8 +63,9 @@ fn test_jupyter_display_trait() {
 
 #[test]
 fn test_jupyter_display_option_some() {
+    let local_interner = lasso::Rodeo::default();
     let value = Some(Value::Integer(456));
-    let display_data = value.to_display_data();
+    let display_data = value.to_display_data(&local_interner);
 
     assert!(display_data.contains_key("text/plain"));
     let plain_text = display_data.get("text/plain").unwrap().as_str().unwrap();
@@ -69,8 +74,9 @@ fn test_jupyter_display_option_some() {
 
 #[test]
 fn test_jupyter_display_option_none() {
+    let local_interner = lasso::Rodeo::default();
     let value: Option<Value> = None;
-    let display_data = value.to_display_data();
+    let display_data = value.to_display_data(&local_interner);
 
     assert!(display_data.is_empty());
 }

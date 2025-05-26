@@ -7,6 +7,8 @@ type ExecuteResult = Result<Option<crate::environment::Value>, crate::errors::Ev
 pub struct JupyterSession {
     /// The persistent environment that maintains state across cell executions
     environment: Environment,
+    /// The evaluator instance, containing the session-scoped string interner
+    evaluator: crate::evaluator::Evaluator,
     /// Execution counter for cells
     execution_count: u32,
 }
@@ -16,8 +18,14 @@ impl JupyterSession {
     pub fn new() -> Self {
         Self {
             environment: Environment::new(),
+            evaluator: crate::evaluator::Evaluator::new(),
             execution_count: 0,
         }
+    }
+
+    /// Get a reference to the session's string interner
+    pub fn interner(&self) -> &lasso::Rodeo {
+        self.evaluator.interner()
     }
 
     /// Get a clone of the current environment for read operations
@@ -62,7 +70,7 @@ impl JupyterSession {
         }
 
         // Execute in the persistent environment
-        let evaluator = crate::evaluator::Evaluator::new();
+        // let mut evaluator = crate::evaluator::Evaluator::new();
 
         // Check if this is an expression or assignment
         let child_count = root.child_count();
@@ -81,7 +89,9 @@ impl JupyterSession {
                 continue;
             }
 
-            let result = evaluator.eval_with_env(child, code, &mut self.environment)?;
+            let result = self
+                .evaluator
+                .eval_with_env(child, code, &mut self.environment)?;
             last_result = Some(result);
         }
 

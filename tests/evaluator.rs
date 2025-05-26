@@ -1,9 +1,11 @@
 //! Tests for the wabznasm expression evaluator.
-use wabznasm::evaluator::evaluate_expression;
+// EvalError is not directly asserted by type in these tests, relying on string messages.
+// If specific error kinds need to be asserted, import wabznasm::errors::EvalErrorKind;
+use wabznasm::evaluator::evaluate_expression; // Use the standalone function
 
 /// Test simple addition
 #[test]
-fn test_addition() {
+fn test_simple_addition() {
     assert_eq!(evaluate_expression("1+2").unwrap(), 3);
     assert_eq!(evaluate_expression("10+5").unwrap(), 15);
     assert_eq!(evaluate_expression("100+200").unwrap(), 300);
@@ -11,7 +13,7 @@ fn test_addition() {
 
 /// Test subtraction
 #[test]
-fn test_subtraction() {
+fn test_simple_subtraction() {
     assert_eq!(evaluate_expression("5-2").unwrap(), 3);
     assert_eq!(evaluate_expression("10-7").unwrap(), 3);
     assert_eq!(evaluate_expression("0-5").unwrap(), -5);

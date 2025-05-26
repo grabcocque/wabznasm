@@ -1,10 +1,10 @@
 use chrono::Utc;
 use jupyter_protocol::{ExecuteRequest, Header, JupyterMessageContent};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use wabznasm::jupyter::handler::WabznasmJupyterKernel;
 use wabznasm::jupyter::signature::SignatureSigner;
-use zeromq::{PubSocket, Socket};
+use zeromq::ZmqMessage;
 
 fn create_test_header() -> Header {
     Header {
@@ -18,9 +18,10 @@ fn create_test_header() -> Header {
 }
 
 async fn create_test_kernel() -> WabznasmJupyterKernel {
-    let iopub_socket = Arc::new(Mutex::new(PubSocket::new()));
+    // Create a dummy IOPub channel sender (capacity 1) and ignore the receiver
+    let (iopub_sender, mut _iopub_rx) = mpsc::channel::<ZmqMessage>(1);
     let signer = Arc::new(SignatureSigner::new("hmac-sha256".to_string(), b"test-key").unwrap());
-    WabznasmJupyterKernel::new(iopub_socket, signer)
+    WabznasmJupyterKernel::new(iopub_sender, signer)
 }
 
 #[tokio::test]
