@@ -11,9 +11,9 @@ use jupyter_protocol::{
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
-use zeromq::{PubSocket, SocketSend, ZmqMessage};
+use zeromq::ZmqMessage;
 
 /// Custom shutdown reply struct used by kernel.rs
 pub struct CustomShutdownReply {
@@ -33,18 +33,19 @@ struct SimplifiedMessage {
 pub struct WabznasmJupyterKernel {
     /// Persistent session that maintains environment across cells
     session: JupyterSession,
-    /// IOPub socket for broadcasting output
-    iopub_socket: Arc<Mutex<PubSocket>>,
+    /// Channel sender to the IOPub socket actor
+    iopub_sender: Sender<ZmqMessage>,
     /// Signature signer for IOPub messages
     signer: Arc<JP_SignatureSigner>,
 }
 
 impl WabznasmJupyterKernel {
     /// Create a new kernel instance
-    pub fn new(iopub_socket: Arc<Mutex<PubSocket>>, signer: Arc<JP_SignatureSigner>) -> Self {
+    /// Create a new kernel instance with a channel sender for IOPub and a signature signer
+    pub fn new(iopub_sender: Sender<ZmqMessage>, signer: Arc<JP_SignatureSigner>) -> Self {
         Self {
             session: JupyterSession::new(),
-            iopub_socket,
+            iopub_sender,
             signer,
         }
     }
@@ -92,9 +93,9 @@ impl WabznasmJupyterKernel {
                 metadata: HashMap::new(),
                 content: status_content,
             };
-            let mut iopub_guard = self.iopub_socket.lock().await;
+            // Send busy status via IOPub actor
             if let Ok(zmq_msg) = construct_zmq_message_for_iopub(&msg, &self.signer) {
-                if let Err(e) = iopub_guard.send(zmq_msg).await {
+                if let Err(e) = self.iopub_sender.send(zmq_msg).await {
                     eprintln!("Failed to send busy status: {}", e);
                 }
             }
@@ -102,7 +103,7 @@ impl WabznasmJupyterKernel {
 
         let exec_reply_content = match self.session.execute(code) {
             Ok(result) => {
-                let display_data_map = result.to_display_data();
+                let display_data_map = result.to_display_data(self.session.interner());
                 if !display_data_map.is_empty() {
                     let iopub_header =
                         self.create_iopub_header(parent_header, "execute_result".to_string());
@@ -117,9 +118,9 @@ impl WabznasmJupyterKernel {
                         metadata: HashMap::new(),
                         content: exec_result_content,
                     };
-                    let mut iopub_guard = self.iopub_socket.lock().await;
+                    // Send execute_result via IOPub actor
                     if let Ok(zmq_msg) = construct_zmq_message_for_iopub(&msg, &self.signer) {
-                        if let Err(e) = iopub_guard.send(zmq_msg).await {
+                        if let Err(e) = self.iopub_sender.send(zmq_msg).await {
                             eprintln!("Failed to send execute_result: {}", e);
                         }
                     }
@@ -149,9 +150,9 @@ impl WabznasmJupyterKernel {
                     metadata: HashMap::new(),
                     content: error_content,
                 };
-                let mut iopub_guard = self.iopub_socket.lock().await;
+                // Send error via IOPub actor
                 if let Ok(zmq_msg) = construct_zmq_message_for_iopub(&msg, &self.signer) {
-                    if let Err(e) = iopub_guard.send(zmq_msg).await {
+                    if let Err(e) = self.iopub_sender.send(zmq_msg).await {
                         eprintln!("Failed to send error IOPub: {}", e);
                     }
                 }
@@ -178,9 +179,9 @@ impl WabznasmJupyterKernel {
                 metadata: HashMap::new(),
                 content: status_content,
             };
-            let mut iopub_guard = self.iopub_socket.lock().await;
+            // Send idle status via IOPub actor
             if let Ok(zmq_msg) = construct_zmq_message_for_iopub(&msg, &self.signer) {
-                if let Err(e) = iopub_guard.send(zmq_msg).await {
+                if let Err(e) = self.iopub_sender.send(zmq_msg).await {
                     eprintln!("Failed to send idle status: {}", e);
                 }
             }

@@ -11,3 +11,6 @@ fuzz/artifacts/
 fuzz/corpus/
 
 .env
+*.code-workspace
+.idea/
+.ipynb_checkpoints/

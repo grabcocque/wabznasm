@@ -7,7 +7,7 @@ pub struct DisplayFormatter;
 
 impl DisplayFormatter {
     /// Convert a wabznasm Value to Jupyter display data
-    pub fn format_value(value: &Value) -> HashMap<String, JsonValue> {
+    pub fn format_value(value: &Value, interner: &lasso::Rodeo) -> HashMap<String, JsonValue> {
         let mut display_data = HashMap::new();
 
         match value {
@@ -21,10 +21,15 @@ impl DisplayFormatter {
             }
             Value::Function { params, body, .. } => {
                 // Display functions with their signature
+                let body_str = interner.resolve(body);
                 let signature = if params.is_empty() {
-                    format!("{{{}}}", body)
+                    format!("{{{}}}", body_str)
                 } else {
-                    format!("{{[{}] {}}}", params.join(";"), body)
+                    let param_names: Vec<String> = params
+                        .iter()
+                        .map(|&p| interner.resolve(&p).to_string())
+                        .collect();
+                    format!("{{[{}] {}}}", param_names.join(";"), body_str)
                 };
 
                 display_data.insert("text/plain".to_string(), json!(signature));
@@ -45,9 +50,12 @@ impl DisplayFormatter {
     }
 
     /// Format an execution result (which may be None for assignments)
-    pub fn format_result(result: &Option<Value>) -> HashMap<String, JsonValue> {
+    pub fn format_result(
+        result: &Option<Value>,
+        interner: &lasso::Rodeo,
+    ) -> HashMap<String, JsonValue> {
         match result {
-            Some(value) => Self::format_value(value),
+            Some(value) => Self::format_value(value, interner),
             None => {
                 // For assignments or statements with no return value
                 HashMap::new()
@@ -86,17 +94,17 @@ impl DisplayFormatter {
 
 /// Trait for converting wabznasm values to display representations
 pub trait JupyterDisplay {
-    fn to_display_data(&self) -> HashMap<String, JsonValue>;
+    fn to_display_data(&self, interner: &lasso::Rodeo) -> HashMap<String, JsonValue>;
 }
 
 impl JupyterDisplay for Value {
-    fn to_display_data(&self) -> HashMap<String, JsonValue> {
-        DisplayFormatter::format_value(self)
+    fn to_display_data(&self, interner: &lasso::Rodeo) -> HashMap<String, JsonValue> {
+        DisplayFormatter::format_value(self, interner)
     }
 }
 
 impl JupyterDisplay for Option<Value> {
-    fn to_display_data(&self) -> HashMap<String, JsonValue> {
-        DisplayFormatter::format_result(self)
+    fn to_display_data(&self, interner: &lasso::Rodeo) -> HashMap<String, JsonValue> {
+        DisplayFormatter::format_result(self, interner)
     }
 }

@@ -13,6 +13,8 @@ license = "EPL-2.0"
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2"
 tree-sitter = "0.25.4"
+bumpalo = { version = "3.16", features = ["collections"] }
+lasso = { version = "0.7", features = ["multi-threaded"] }
 color-eyre = "0.6"
 rustyline = "15.0.0"
 storage = { path = "storage" }

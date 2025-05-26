@@ -12,14 +12,20 @@ use jupyter_protocol::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc::{Receiver, Sender};
 use zeromq::{PubSocket, RepSocket, RouterSocket, Socket, SocketRecv, SocketSend, ZmqMessage};
+
+// Type aliases to reduce complexity
+type ZmqSender = Sender<ZmqMessage>;
+type ZmqReceiver = Receiver<ZmqMessage>;
 
 pub struct JupyterKernelRunner {
     config: ConnectionConfig,
     kernel_handler: WabznasmJupyterKernel,
     verifier: Arc<JP_SignatureVerifier>,
     signer: Arc<JP_SignatureSigner>,
-    iopub_socket: Arc<tokio::sync::Mutex<PubSocket>>,
+    /// Channel sender to the IOPub socket actor
+    iopub_sender: ZmqSender,
 }
 
 impl JupyterKernelRunner {
@@ -39,15 +45,32 @@ impl JupyterKernelRunner {
             JP_SignatureSigner::new(config.signature_scheme.clone(), key)
                 .map_err(|e| e.to_string())?,
         );
-        let iopub_socket_arc = Arc::new(tokio::sync::Mutex::new(PubSocket::new()));
-        let kernel_handler =
-            WabznasmJupyterKernel::new(Arc::clone(&iopub_socket_arc), Arc::clone(&signer));
+        // Spawn an IOPub actor task that binds and sends messages lock-free via channel
+        let iopub_url = config.iopub_url();
+        let (iopub_sender, mut iopub_receiver): (ZmqSender, ZmqReceiver) =
+            tokio::sync::mpsc::channel(1024);
+        // IOPub socket actor
+        tokio::spawn(async move {
+            let mut socket = PubSocket::new();
+            if let Err(e) = socket.bind(&iopub_url).await {
+                eprintln!("Failed to bind IOPub socket to {}: {}", iopub_url, e);
+                return;
+            }
+            println!("📢 IOPub socket bound to {}", iopub_url);
+            while let Some(msg) = iopub_receiver.recv().await {
+                if let Err(e) = socket.send(msg).await {
+                    eprintln!("IOPub send error: {}", e);
+                }
+            }
+        });
+        // Kernel handler uses the same sender for IOPub messages
+        let kernel_handler = WabznasmJupyterKernel::new(iopub_sender.clone(), Arc::clone(&signer));
         Ok(Self {
             config,
             kernel_handler,
             verifier,
             signer,
-            iopub_socket: iopub_socket_arc,
+            iopub_sender,
         })
     }
 
@@ -111,8 +134,8 @@ impl JupyterKernelRunner {
             println!("🔍 Status header: {}", header_json);
         }
 
-        let mut iopub_guard = self.iopub_socket.lock().await;
-        iopub_guard.send(zmq_msg).await?;
+        // Send via the IOPub actor channel
+        self.iopub_sender.send(zmq_msg).await?;
         println!("📢 Sent IOPub status: {}", execution_state);
         Ok(())
     }
@@ -122,12 +145,7 @@ impl JupyterKernelRunner {
         let mut shell_socket = RouterSocket::new();
         shell_socket.bind(&self.config.shell_url()).await?;
         println!("🐚 Shell socket bound to {}", self.config.shell_url());
-        let iopub_url = self.config.iopub_url();
-        {
-            let mut iopub_guard = self.iopub_socket.lock().await;
-            iopub_guard.bind(&iopub_url).await?;
-        }
-        println!("📢 IOPub socket bound to {}", iopub_url);
+        // IOPub socket is bound and managed by the background actor spawned in new()
         let mut hb_socket = RepSocket::new();
         hb_socket.bind(&self.config.hb_url()).await?;
         println!("💓 Heartbeat socket bound to {}", self.config.hb_url());

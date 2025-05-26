@@ -1,9 +1,16 @@
 use crate::environment::{Environment, Value};
 use crate::errors::{EvalError, EvalErrorKind};
+use crate::interning::InternedString;
 use crate::parser::{parse_expression, query_expression};
+use bumpalo::Bump;
+use lasso::Rodeo;
 use miette::Report;
 use std::sync::Arc;
 use tree_sitter::Node;
+
+// Type aliases for cleaner code
+type EvalInternedStringListResult = Result<Vec<InternedString>, EvalError>;
+type EvalValueListResult = Result<Vec<Value>, EvalError>;
 
 fn get_node_text<'a>(node: Node<'a>, source: &'a str) -> Result<&'a str, String> {
     node.utf8_text(source.as_bytes()).map_err(|e| e.to_string())
@@ -70,7 +77,11 @@ fn evaluate_binary_operation(
 }
 
 /// Visitor struct that encapsulates evaluation logic with environment support.
-pub struct Evaluator;
+/// Each evaluator instance maintains its own session-scoped string interner.
+pub struct Evaluator {
+    /// Session-scoped string interner for this evaluator instance
+    string_interner: Rodeo,
+}
 
 impl Default for Evaluator {
     fn default() -> Self {
@@ -80,15 +91,46 @@ impl Default for Evaluator {
 
 impl Evaluator {
     pub fn new() -> Self {
-        Evaluator
+        Evaluator {
+            string_interner: Rodeo::new(),
+        }
+    }
+
+    /// Get a reference to the session-scoped string interner
+    pub fn interner(&self) -> &Rodeo {
+        &self.string_interner
+    }
+
+    /// Intern a string using this evaluator's session-scoped interner
+    pub fn intern(&mut self, s: &str) -> InternedString {
+        self.string_interner.get_or_intern(s)
+    }
+
+    /// Resolve an interned string back to its value
+    pub fn resolve(&self, key: InternedString) -> &str {
+        self.string_interner.resolve(&key)
     }
 
     /// Evaluate a node with an environment, returning a Value
+    /// This is the main public API that automatically uses bumpalo for temporaries
     pub fn eval_with_env(
-        &self,
+        &mut self,
         node: Node<'_>,
         src: &str,
         env: &mut Environment,
+    ) -> Result<Value, EvalError> {
+        // Create arena for this evaluation call - scoped to this invocation
+        let arena = Bump::new();
+        self.eval_with_env_and_arena(node, src, env, &arena)
+    }
+
+    /// Internal evaluation method that uses provided bumpalo arena for temporaries
+    pub fn eval_with_env_and_arena(
+        &mut self,
+        node: Node<'_>,
+        src: &str,
+        env: &mut Environment,
+        arena: &Bump,
     ) -> Result<Value, EvalError> {
         match node.kind() {
             // Handle source_file with multiple children
@@ -100,11 +142,13 @@ impl Evaluator {
                     match child.kind() {
                         "comment" => continue, // Skip comments
                         "statement" => {
-                            last_result = Some(self.eval_with_env(child, src, env)?);
+                            last_result =
+                                Some(self.eval_with_env_and_arena(child, src, env, arena)?);
                         }
                         _ => {
                             // Handle other non-comment nodes as statements
-                            last_result = Some(self.eval_with_env(child, src, env)?);
+                            last_result =
+                                Some(self.eval_with_env_and_arena(child, src, env, arena)?);
                         }
                     }
                 }
@@ -120,7 +164,7 @@ impl Evaluator {
             // Delegate to child for wrapper nodes
             "expression" | "statement" => {
                 let child = self.named_child(node)?;
-                self.eval_with_env(child, src, env)
+                self.eval_with_env_and_arena(child, src, env, arena)
             }
 
             // Arithmetic expressions (return integer values)
@@ -133,10 +177,10 @@ impl Evaluator {
             "power" => Ok(Value::Integer(self.visit_power_raw(node, src, env)?)),
             "postfix" => Ok(Value::Integer(self.visit_postfix_raw(node, src, env)?)),
 
-            // Variable and function operations
-            "identifier" => self.visit_identifier(node, src, env),
-            "assignment" => self.visit_assignment(node, src, env),
-            "function_call" => self.visit_function_call(node, src, env),
+            // Variable and function operations - use interned optimized versions
+            "identifier" => self.visit_identifier_interned(node, src, env),
+            "assignment" => self.visit_assignment_with_arena(node, src, env, arena),
+            "function_call" => self.visit_function_call_with_arena(node, src, env, arena),
 
             other => Err(EvalError::new(
                 EvalErrorKind::Other(format!("Unexpected node type: {}", other)),
@@ -146,7 +190,7 @@ impl Evaluator {
     }
 
     /// Legacy method for backward compatibility (integers only)
-    pub fn eval(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
+    pub fn eval(&mut self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let mut env = Environment::new();
         match self.eval_with_env(node, src, &mut env)? {
             Value::Integer(n) => Ok(n),
@@ -176,92 +220,6 @@ impl Evaluator {
         })
     }
 
-    #[allow(dead_code)]
-    fn visit_binary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-        // Binary operation if operator field exists, otherwise fallback to single child
-        if let Some(opn) = node.child_by_field_name("operator") {
-            // Get all required fields at once to avoid redundant lookups
-            let lhs = node
-                .child_by_field_name("left")
-                .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
-            let rhs = node
-                .child_by_field_name("right")
-                .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
-            let lv = self.eval(lhs, src)?;
-            let rv = self.eval(rhs, src)?;
-            let op = self.op_text(opn, src)?;
-            evaluate_binary_operation(lv, rv, op, node, opn)
-        } else {
-            let child = self.named_child(node)?;
-            self.eval(child, src)
-        }
-    }
-
-    #[allow(dead_code)]
-    fn visit_unary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-        if node.child_by_field_name("operator").is_some() {
-            let operand = self.child(node, "operand")?;
-            let v = self.eval(operand, src)?;
-            v.checked_neg().ok_or_else(|| {
-                EvalError::new(EvalErrorKind::IntegerOverflow("negation".into()), node)
-            })
-        } else {
-            let c = self.named_child(node)?;
-            self.eval(c, src)
-        }
-    }
-
-    #[allow(dead_code)]
-    fn visit_power(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-        if node.child_by_field_name("operator").is_some() {
-            let base = self.child(node, "base")?;
-            let exp = self.child(node, "exponent")?;
-            let b = self.eval(base, src)?;
-            let e = self.eval(exp, src)?;
-            if e < 0 {
-                Err(EvalError::new(EvalErrorKind::NegativeExponent, exp))
-            } else if e > 63 {
-                Err(EvalError::new(EvalErrorKind::ExponentTooLarge, exp))
-            } else {
-                b.checked_pow(e as u32).ok_or_else(|| {
-                    EvalError::new(
-                        EvalErrorKind::IntegerOverflow("power operation".into()),
-                        node,
-                    )
-                })
-            }
-        } else {
-            let c = self.named_child(node)?;
-            self.eval(c, src)
-        }
-    }
-
-    #[allow(dead_code)]
-    fn visit_postfix(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-        if node.child_by_field_name("operator").is_some() {
-            let operand = self.child(node, "operand")?;
-            let v = self.eval(operand, src)?;
-            calculate_factorial(v, node)
-        } else {
-            let c = self.named_child(node)?;
-            self.eval(c, src)
-        }
-    }
-
-    #[allow(dead_code)]
-    fn visit_primary(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-        if let Some(expr) = node.child_by_field_name("expression") {
-            self.eval(expr, src)
-        } else if let Some(num) = node.named_child(0) {
-            self.eval(num, src)
-        } else {
-            Err(EvalError::new(
-                EvalErrorKind::Other("Invalid primary expression".into()),
-                node,
-            ))
-        }
-    }
-
     fn visit_number(&self, node: Node<'_>, src: &str) -> Result<i64, EvalError> {
         let txt = get_node_text(node, src).map_err(|e| {
             EvalError::new(
@@ -275,9 +233,9 @@ impl Evaluator {
 
     // New environment-aware visitor methods
 
-    /// Visit identifier and lookup in environment
-    fn visit_identifier(
-        &self,
+    /// Visit identifier with interned string optimization
+    fn visit_identifier_interned(
+        &mut self,
         node: Node,
         src: &str,
         env: &Environment,
@@ -285,15 +243,24 @@ impl Evaluator {
         let name =
             get_node_text(node, src).map_err(|e| EvalError::new(EvalErrorKind::Other(e), node))?;
 
-        env.get(name, node).cloned()
+        // Intern the identifier name for efficient lookup using session-scoped interner
+        let interned_name = self.intern(name);
+
+        // Try interned lookup first, fall back to string lookup for compatibility
+        if let Some(value) = env.lookup_interned(interned_name) {
+            Ok(value.clone())
+        } else {
+            env.get(name, node, &mut self.string_interner).cloned()
+        }
     }
 
-    /// Visit assignment: name: value or name: {body}
-    fn visit_assignment(
-        &self,
+    /// Visit assignment with arena support: name: value or name: {body}
+    fn visit_assignment_with_arena(
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
+        arena: &Bump,
     ) -> Result<Value, EvalError> {
         let name_node = node
             .child_by_field_name("name")
@@ -306,20 +273,23 @@ impl Evaluator {
             .map_err(|e| EvalError::new(EvalErrorKind::Other(e), name_node))?;
 
         let value = match value_node.kind() {
-            "function_body" => self.visit_function_body(value_node, src, env)?,
-            _ => self.eval_with_env(value_node, src, env)?,
+            "function_body" => self.visit_function_body_with_arena(value_node, src, env, arena)?,
+            _ => self.eval_with_env_and_arena(value_node, src, env, arena)?,
         };
 
-        env.define(name.to_string(), value.clone());
+        // Intern the variable name for efficient storage and lookup
+        let interned_name = self.intern(name);
+        env.define_interned(interned_name, value.clone());
         Ok(value)
     }
 
-    /// Visit function body: {expr} or {[params] expr}
-    fn visit_function_body(
-        &self,
+    /// Visit function body with arena support: {expr} or {[params] expr}
+    fn visit_function_body_with_arena(
+        &mut self,
         node: Node,
         src: &str,
         env: &Environment,
+        arena: &Bump,
     ) -> Result<Value, EvalError> {
         let body_node = node
             .child_by_field_name("body")
@@ -330,50 +300,38 @@ impl Evaluator {
             .map_err(|e| EvalError::new(EvalErrorKind::Other(e), body_node))?;
 
         let params = if let Some(params_node) = params_node {
-            self.extract_parameter_list(params_node, src)?
+            self.extract_parameter_list_with_arena(params_node, src, arena)?
         } else {
             vec![]
         };
 
-        Ok(Value::Function {
-            params,
-            body: body_text.to_string(),
-            closure: Some(Arc::new(env.clone())),
-        })
+        let param_names: Vec<String> = params
+            .iter()
+            .map(|&p| self.resolve(p).to_string())
+            .collect();
+        Ok(Value::new_function(
+            &param_names,
+            body_text,
+            Some(Arc::new(env.clone())),
+            &mut self.string_interner,
+        ))
     }
 
-    /// Extract parameter names from parameter list: [x;y;z]
-    #[allow(clippy::type_complexity)]
-    fn extract_parameter_list(&self, node: Node, src: &str) -> Result<Vec<String>, EvalError> {
-        let mut params = Vec::new();
-
-        // Walk through all named children that are identifiers
-        let mut cursor = node.walk();
-        for child in node.named_children(&mut cursor) {
-            if child.kind() == "identifier" {
-                let param_name = get_node_text(child, src)
-                    .map_err(|e| EvalError::new(EvalErrorKind::Other(e), child))?;
-                params.push(param_name.to_string());
-            }
-        }
-
-        Ok(params)
-    }
-
-    /// Visit function call: func[args]
-    fn visit_function_call(
-        &self,
+    /// Visit function call with arena support: func[args]
+    fn visit_function_call_with_arena(
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
+        arena: &Bump,
     ) -> Result<Value, EvalError> {
         let func_node = node
             .child_by_field_name("function")
             .ok_or_else(|| EvalError::new(EvalErrorKind::MissingOperand, node))?;
         let args_node = node.child_by_field_name("args");
 
-        // Get function value
-        let func_value = self.visit_identifier(func_node, src, env)?;
+        // Get function value using interned lookup
+        let func_value = self.visit_identifier_interned(func_node, src, env)?;
         let (params, body, closure) = match func_value {
             Value::Function {
                 params,
@@ -388,53 +346,93 @@ impl Evaluator {
             }
         };
 
-        // Evaluate arguments
+        // Evaluate arguments using arena
         let args = if let Some(args_node) = args_node {
-            self.extract_argument_list(args_node, src, env)?
+            self.extract_argument_list_with_arena(args_node, src, env, arena)?
         } else {
             vec![]
         };
 
-        // Create function execution environment
+        // Create function execution environment using arena
         let base_env = closure.as_ref().map(|c| c.as_ref()).unwrap_or(env);
-        let mut call_env = base_env.bind_parameters(&params, &args, node)?;
+        let mut call_env = base_env.bind_parameters_with_arena(
+            &params,
+            &args,
+            node,
+            arena,
+            &mut self.string_interner,
+        )?;
 
         // Parse and evaluate function body
-        let tree = parse_expression(&body).map_err(|e| {
+        let body_str = self.resolve(body).to_string();
+        let tree = parse_expression(&body_str).map_err(|e| {
             EvalError::new(
                 EvalErrorKind::Other(format!("Function body parse error: {}", e)),
                 node,
             )
         })?;
 
-        self.eval_with_env(tree.root_node(), &body, &mut call_env)
+        self.eval_with_env_and_arena(tree.root_node(), &body_str, &mut call_env, arena)
     }
 
-    /// Extract argument values from argument list: expr;expr;expr
-    #[allow(clippy::type_complexity)]
-    fn extract_argument_list(
-        &self,
+    // Bumpalo-enhanced parameter/argument extraction methods
+
+    /// Extract parameter names using bumpalo for temporary allocations
+    /// Returns Vec<InternedString> for memory efficiency
+    fn extract_parameter_list_with_arena(
+        &mut self,
+        node: Node,
+        src: &str,
+        arena: &Bump,
+    ) -> EvalInternedStringListResult {
+        // Use bumpalo Vec for temporary collection
+        let mut temp_params = bumpalo::collections::Vec::new_in(arena);
+
+        // Walk through all named children that are identifiers
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            if child.kind() == "identifier" {
+                let param_name = get_node_text(child, src)
+                    .map_err(|e| EvalError::new(EvalErrorKind::Other(e), child))?;
+                // Store as arena-allocated string slice initially
+                let arena_str = arena.alloc_str(param_name);
+                temp_params.push(arena_str);
+            }
+        }
+
+        // Convert to Vec<InternedString> for return (intern the strings)
+        let result = temp_params.iter().map(|s| self.intern(s)).collect();
+        Ok(result)
+    }
+
+    /// Extract argument values using bumpalo for temporary allocations
+    /// Returns Vec<Value> for compatibility, but uses arena internally
+    fn extract_argument_list_with_arena(
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
-    ) -> Result<Vec<Value>, EvalError> {
-        let mut args = Vec::new();
+        arena: &Bump,
+    ) -> EvalValueListResult {
+        // Use bumpalo Vec for temporary collection
+        let mut temp_args = bumpalo::collections::Vec::new_in(arena);
 
         // Walk through all named children looking for argument expressions
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             if child.kind() == "expression" {
-                let arg_value = self.eval_with_env(child, src, env)?;
-                args.push(arg_value);
+                let arg_value = self.eval_with_env_and_arena(child, src, env, arena)?;
+                temp_args.push(arg_value);
             }
         }
 
-        Ok(args)
+        // Convert to owned Vec<Value> for return (long-lived data)
+        Ok(temp_args.into_iter().collect())
     }
 
     /// Visit primary with environment support
     fn visit_primary_with_env(
-        &self,
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
@@ -450,7 +448,7 @@ impl Evaluator {
     }
 
     fn visit_binary_raw(
-        &self,
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
@@ -496,7 +494,7 @@ impl Evaluator {
     }
 
     fn visit_unary_raw(
-        &self,
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
@@ -526,7 +524,7 @@ impl Evaluator {
     }
 
     fn visit_power_raw(
-        &self,
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
@@ -581,7 +579,7 @@ impl Evaluator {
     }
 
     fn visit_postfix_raw(
-        &self,
+        &mut self,
         node: Node,
         src: &str,
         env: &mut Environment,
@@ -614,7 +612,8 @@ impl Evaluator {
 /// Entry point invoked by query_expression
 /// Adapter for visitor-based evaluation
 pub fn eval_node(node: Node<'_>, src: &str) -> Result<i64, EvalError> {
-    Evaluator::new().eval(node, src)
+    let mut evaluator = Evaluator::new();
+    evaluator.eval(node, src)
 }
 
 /// Parses the input string into a TreeSitter parse tree.

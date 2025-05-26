@@ -7,6 +7,9 @@
 //! - Support for closures and nested function definitions
 
 use crate::errors::{EvalError, EvalErrorKind};
+use crate::interning::InternedString;
+use bumpalo::Bump;
+use lasso::Rodeo;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_sitter::Node;
@@ -19,9 +22,11 @@ pub enum Value {
     /// Function value with parameters, body, and captured environment
     Function {
         /// Function parameter names (empty for no params, single element for one param)
-        params: Vec<String>,
+        /// Uses interned strings for memory efficiency and fast comparison
+        params: Vec<InternedString>,
         /// Function body as source code (we'll store the AST node later)
-        body: String,
+        /// Uses interned string for memory efficiency
+        body: InternedString,
         /// Captured lexical environment (closure)
         closure: Option<Arc<Environment>>,
     },
@@ -72,13 +77,53 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Get function parameter names as resolved strings
+    pub fn param_names(&self, interner: &Rodeo) -> Option<Vec<String>> {
+        match self {
+            Value::Function { params, .. } => Some(
+                params
+                    .iter()
+                    .map(|&param| interner.resolve(&param).to_string())
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    /// Get function body as resolved string
+    pub fn body_source(&self, interner: &Rodeo) -> Option<String> {
+        match self {
+            Value::Function { body, .. } => Some(interner.resolve(body).to_string()),
+            _ => None,
+        }
+    }
+
+    /// Create a new function value with interned strings
+    pub fn new_function(
+        param_names: &[String],
+        body_source: &str,
+        closure: Option<Arc<Environment>>,
+        interner: &mut Rodeo,
+    ) -> Self {
+        let params = param_names
+            .iter()
+            .map(|name| interner.get_or_intern(name))
+            .collect();
+        let body = interner.get_or_intern(body_source);
+        Value::Function {
+            params,
+            body,
+            closure,
+        }
+    }
 }
 
 /// Lexical environment for variable and function bindings
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
-    /// Variable bindings in this scope
-    bindings: HashMap<String, Value>,
+    /// Variable bindings in this scope - using interned strings for variable names
+    bindings: HashMap<InternedString, Value>,
     /// Parent environment for lexical scoping
     parent: Option<Arc<Environment>>,
 }
@@ -101,28 +146,52 @@ impl Environment {
     }
 
     /// Bind a value to a name in the current environment
-    pub fn define(&mut self, name: String, value: Value) {
+    pub fn define(&mut self, name: String, value: Value, interner: &mut Rodeo) {
+        let interned_name = interner.get_or_intern(&name);
+        self.bindings.insert(interned_name, value);
+    }
+
+    /// Bind a value to an interned name in the current environment
+    pub fn define_interned(&mut self, name: InternedString, value: Value) {
         self.bindings.insert(name, value);
     }
 
     /// Look up a value by name, searching up the scope chain
-    pub fn lookup(&self, name: &str) -> Option<&Value> {
+    pub fn lookup(&self, name: &str, interner: &mut Rodeo) -> Option<&Value> {
+        // Intern the name for lookup
+        let interned_name = interner.get_or_intern(name);
+
         // First check current environment
-        if let Some(value) = self.bindings.get(name) {
+        if let Some(value) = self.bindings.get(&interned_name) {
             return Some(value);
         }
 
         // Then check parent environments
         if let Some(parent) = &self.parent {
-            return parent.lookup(name);
+            return parent.lookup(name, interner);
+        }
+
+        None
+    }
+
+    /// Look up a value by interned name, searching up the scope chain
+    pub fn lookup_interned(&self, name: InternedString) -> Option<&Value> {
+        // First check current environment
+        if let Some(value) = self.bindings.get(&name) {
+            return Some(value);
+        }
+
+        // Then check parent environments
+        if let Some(parent) = &self.parent {
+            return parent.lookup_interned(name);
         }
 
         None
     }
 
     /// Look up a value by name, returning an error if not found
-    pub fn get(&self, name: &str, node: Node) -> Result<&Value, EvalError> {
-        self.lookup(name).ok_or_else(|| {
+    pub fn get(&self, name: &str, node: Node, interner: &mut Rodeo) -> Result<&Value, EvalError> {
+        self.lookup(name, interner).ok_or_else(|| {
             EvalError::new(
                 EvalErrorKind::Other(format!("Undefined variable: {}", name)),
                 node,
@@ -131,18 +200,32 @@ impl Environment {
     }
 
     /// Check if a name is defined in this environment (not searching parents)
-    pub fn has_local(&self, name: &str) -> bool {
-        self.bindings.contains_key(name)
+    pub fn has_local(&self, name: &str, interner: &mut Rodeo) -> bool {
+        let interned_name = interner.get_or_intern(name);
+        self.bindings.contains_key(&interned_name)
+    }
+
+    /// Check if an interned name is defined in this environment (not searching parents)
+    pub fn has_local_interned(&self, name: InternedString) -> bool {
+        self.bindings.contains_key(&name)
     }
 
     /// Check if a name is defined anywhere in the scope chain
-    pub fn has(&self, name: &str) -> bool {
-        self.lookup(name).is_some()
+    pub fn has(&self, name: &str, interner: &mut Rodeo) -> bool {
+        self.lookup(name, interner).is_some()
     }
 
-    /// Get all variable names in this environment
-    pub fn local_names(&self) -> Vec<&String> {
-        self.bindings.keys().collect()
+    /// Get all variable names in this environment as resolved strings
+    pub fn local_names(&self, interner: &Rodeo) -> Vec<String> {
+        self.bindings
+            .keys()
+            .map(|&key| interner.resolve(&key).to_string())
+            .collect()
+    }
+
+    /// Get all variable names in this environment as interned strings
+    pub fn local_names_interned(&self) -> Vec<InternedString> {
+        self.bindings.keys().copied().collect()
     }
 
     /// Create a new child environment for function calls
@@ -153,7 +236,7 @@ impl Environment {
     /// Create a new child environment and bind parameters to arguments
     pub fn bind_parameters(
         &self,
-        params: &[String],
+        params: &[InternedString],
         args: &[Value],
         node: Node,
     ) -> Result<Environment, EvalError> {
@@ -169,8 +252,50 @@ impl Environment {
         }
 
         let mut child_env = self.extend();
-        for (param, arg) in params.iter().zip(args.iter()) {
-            child_env.define(param.clone(), arg.clone());
+        for (&param, arg) in params.iter().zip(args.iter()) {
+            child_env.define_interned(param, arg.clone());
+        }
+
+        Ok(child_env)
+    }
+
+    /// Create a new child environment and bind parameters to arguments using arena allocation
+    pub fn bind_parameters_with_arena(
+        &self,
+        params: &[InternedString],
+        args: &[Value],
+        node: Node,
+        arena: &Bump,
+        interner: &mut Rodeo,
+    ) -> Result<Environment, EvalError> {
+        if params.len() != args.len() {
+            return Err(EvalError::new(
+                EvalErrorKind::Other(format!(
+                    "Arity mismatch: expected {} arguments, got {}",
+                    params.len(),
+                    args.len()
+                )),
+                node,
+            ));
+        }
+
+        // Use arena for temporary parameter binding operations
+        let mut temp_bindings = bumpalo::collections::Vec::new_in(arena);
+
+        // Collect parameter-argument pairs in arena
+        for (&param, arg) in params.iter().zip(args.iter()) {
+            let param_str = arena.alloc_str(interner.resolve(&param));
+            temp_bindings.push((param_str, arg));
+        }
+
+        // Create child environment (still uses regular HashMap for permanent storage)
+        let mut child_env = self.extend();
+
+        // Bind parameters from arena-allocated temporaries
+        for (param_str, arg) in temp_bindings {
+            // Convert the arena string back to an interned string for permanent storage
+            let param_interned = interner.get_or_intern(param_str);
+            child_env.define_interned(param_interned, arg.clone());
         }
 
         Ok(child_env)
@@ -200,51 +325,68 @@ mod tests {
     #[test]
     fn test_environment_basic_operations() {
         let mut env = Environment::new();
+        let mut interner = Rodeo::new();
 
         // Test binding and lookup
-        env.define("x".to_string(), Value::Integer(42));
-        assert_eq!(env.lookup("x"), Some(&Value::Integer(42)));
-        assert_eq!(env.lookup("y"), None);
+        env.define("x".to_string(), Value::Integer(42), &mut interner);
+        assert_eq!(env.lookup("x", &mut interner), Some(&Value::Integer(42)));
+        assert_eq!(env.lookup("y", &mut interner), None);
 
         // Test has operations
-        assert!(env.has("x"));
-        assert!(!env.has("y"));
-        assert!(env.has_local("x"));
-        assert!(!env.has_local("y"));
+        assert!(env.has("x", &mut interner));
+        assert!(!env.has("y", &mut interner));
+        assert!(env.has_local("x", &mut interner));
+        assert!(!env.has_local("y", &mut interner));
     }
 
     #[test]
     fn test_environment_lexical_scoping() {
+        let mut interner = Rodeo::new();
         let mut global = Environment::new();
-        global.define("global_var".to_string(), Value::Integer(1));
+        global.define("global_var".to_string(), Value::Integer(1), &mut interner);
 
         let mut local = Environment::with_parent(Arc::new(global));
-        local.define("local_var".to_string(), Value::Integer(2));
+        local.define("local_var".to_string(), Value::Integer(2), &mut interner);
 
         // Local environment can see both local and global variables
-        assert_eq!(local.lookup("local_var"), Some(&Value::Integer(2)));
-        assert_eq!(local.lookup("global_var"), Some(&Value::Integer(1)));
+        assert_eq!(
+            local.lookup("local_var", &mut interner),
+            Some(&Value::Integer(2))
+        );
+        assert_eq!(
+            local.lookup("global_var", &mut interner),
+            Some(&Value::Integer(1))
+        );
 
         // Local variables shadow global ones
-        local.define("global_var".to_string(), Value::Integer(10));
-        assert_eq!(local.lookup("global_var"), Some(&Value::Integer(10)));
+        local.define("global_var".to_string(), Value::Integer(10), &mut interner);
+        assert_eq!(
+            local.lookup("global_var", &mut interner),
+            Some(&Value::Integer(10))
+        );
     }
 
     #[test]
     fn test_environment_extension() {
+        let mut interner = Rodeo::new();
         let mut env = Environment::new();
-        env.define("x".to_string(), Value::Integer(42));
+        env.define("x".to_string(), Value::Integer(42), &mut interner);
 
         let child = env.extend();
-        assert_eq!(child.lookup("x"), Some(&Value::Integer(42)));
-        assert!(child.has("x"));
-        assert!(!child.has_local("x")); // Not in local scope
+        assert_eq!(child.lookup("x", &mut interner), Some(&Value::Integer(42)));
+        assert!(child.has("x", &mut interner));
+        assert!(!child.has_local("x", &mut interner)); // Not in local scope
     }
 
     #[test]
     fn test_parameter_binding() {
+        let mut interner = Rodeo::new();
         let env = Environment::new();
-        let params = vec!["x".to_string(), "y".to_string()];
+        let param_names = ["x".to_string(), "y".to_string()];
+        let params: Vec<InternedString> = param_names
+            .iter()
+            .map(|name| interner.get_or_intern(name))
+            .collect();
         let args = vec![Value::Integer(1), Value::Integer(2)];
 
         // Create a dummy node for testing (this would normally come from the parser)
@@ -255,35 +397,41 @@ mod tests {
 
         let child_env = env.bind_parameters(&params, &args, node).unwrap();
 
-        assert_eq!(child_env.lookup("x"), Some(&Value::Integer(1)));
-        assert_eq!(child_env.lookup("y"), Some(&Value::Integer(2)));
+        assert_eq!(
+            child_env.lookup("x", &mut interner),
+            Some(&Value::Integer(1))
+        );
+        assert_eq!(
+            child_env.lookup("y", &mut interner),
+            Some(&Value::Integer(2))
+        );
     }
 
     #[test]
     fn test_function_value() {
-        let func = Value::Function {
-            params: vec!["x".to_string()],
-            body: "x+1".to_string(),
-            closure: None,
-        };
+        let mut interner = Rodeo::new();
+        let func = Value::new_function(&["x".to_string()], "x+1", None, &mut interner);
 
         assert!(func.is_function());
         assert_eq!(func.arity(), Some(1));
         assert_eq!(func.as_integer(), None);
+        assert_eq!(func.param_names(&interner), Some(vec!["x".to_string()]));
+        assert_eq!(func.body_source(&interner), Some("x+1".to_string()));
     }
 
     #[test]
     fn test_environment_properties() {
+        let mut interner = Rodeo::new();
         let mut env = Environment::new();
         assert!(env.is_empty());
         assert_eq!(env.size(), 0);
 
-        env.define("x".to_string(), Value::Integer(42));
+        env.define("x".to_string(), Value::Integer(42), &mut interner);
         assert!(!env.is_empty());
         assert_eq!(env.size(), 1);
 
-        let names = env.local_names();
+        let names = env.local_names(&interner);
         assert_eq!(names.len(), 1);
-        assert!(names.contains(&&"x".to_string()));
+        assert!(names.contains(&"x".to_string()));
     }
 }

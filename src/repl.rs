@@ -10,7 +10,7 @@ use rustyline::history::DefaultHistory;
 pub fn run() -> Result<(), eyre::Report> {
     let mut rl: Editor<(), DefaultHistory> = Editor::new()?;
     let mut env = Environment::new();
-    let evaluator = Evaluator::new();
+    let mut evaluator = Evaluator::new();
 
     println!(
         "wabznasm REPL: enter expressions, assignments, or function definitions. Type 'exit' to quit"
@@ -37,7 +37,11 @@ pub fn run() -> Result<(), eyre::Report> {
                             if params.is_empty() {
                                 println!("= {{expr}}");
                             } else {
-                                println!("= {{[{}] expr}}", params.join(";"));
+                                let param_names: Vec<String> = params
+                                    .iter()
+                                    .map(|&p_val| evaluator.resolve(p_val).to_string())
+                                    .collect();
+                                println!("= {{[{}] expr}}", param_names.join(";"));
                             }
                         }
                         Err(e) => eprintln!("Error: {:?}", e),
