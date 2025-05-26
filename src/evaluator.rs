@@ -92,7 +92,7 @@ impl Default for Evaluator {
 impl Evaluator {
     pub fn new() -> Self {
         Evaluator {
-            string_interner: Rodeo::new(),
+            string_interner: Rodeo::default(),
         }
     }
 
